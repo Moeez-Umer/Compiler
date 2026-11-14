@@ -169,3 +169,70 @@ Changes to SPEC.md or frozen interfaces must be logged here.
   - (+) Both `pytest` and `python -m pytest` work identically from the repo root.
   - (+) Matches the commands in `Prompts.md` without editing the prompts.
   - (-) Adds one small config file at the repo root.
+
+
+## D-012 Malformed numbers are scanned as one run of digits, letters and dots
+
+- **Context**: SPEC section 5 lists `3.4.5`, `3.`, `.5` and `9abc` as invalid. A naive scanner would split them
+  into several small tokens and report several confusing errors.
+- **Options considered**:
+  1. Scan the longest valid number, then treat the rest as new tokens.
+  2. Scan the whole run of `[A-Za-z0-9_.]` that starts with a digit (or with `.` followed by a digit), then
+     validate it against `[0-9]+` or `[0-9]+.[0-9]+`.
+- **Decision**: Option 2. One bad run is one INVALID token and one error, reported at its first column.
+  Messages: `Malformed number 'N'`, and `Number 'N' is glued to letters` when the run contains letters.
+- **Trade-offs**:
+  - (+) One error per mistake; simple to explain.
+  - (-) `3.foo` is one INVALID token (reported as glued to letters).
+  - (-) A lone `.` not followed by a digit is an invalid character, not a malformed number.
+
+## D-013 Extent of an invalid char literal or comment
+
+- **Context**: SPEC says to emit an INVALID token for bad char literals and for an unterminated block comment,
+  but not how much text the token covers.
+- **Decision**:
+  - A char literal runs to its closing quote or to the end of the line. An unterminated `'a;` therefore
+    swallows the rest of the line (observed in `samples/invalid_lexical.sl`: the `;` is part of the INVALID lexeme).
+    A backslash always consumes the next character, so a backslash followed by a quote is an escaped quote.
+  - An unterminated `/*` yields one INVALID token with lexeme `/*`, reported at the line and column where
+    the comment started; the rest of the file is consumed as comment text.
+- **Trade-offs**:
+  - (+) One error per bad literal, no cascades, forward progress guaranteed.
+  - (-) Code after an unterminated char literal on the same line, or after an unterminated `/*`, is not checked.
+    The parser (Phase 3) may report a follow-on syntax error; it skips INVALID tokens silently.
+
+## D-014 Lexical error messages and column rules
+
+- **Context**: SPEC section 9 fixes the error prefix but only gives one message text.
+- **Decision**: Messages are `Invalid character 'X'` (also used for a single `&` or `|`),
+  `Malformed number 'N'`, `Number 'N' is glued to letters`, `Unterminated char literal L`,
+  `Empty char literal ''`, `Char literal L is too long`, `Bad escape sequence in char literal L`,
+  `Unterminated block comment`. Columns count characters (a tab is 1 column); only `\n` ends a line, so `\r\n`
+  is one line break. Identifiers and digits are ASCII only: a non-ASCII letter such as `é` is an invalid character.
+- **Trade-offs**:
+  - (+) Easy to match in `// EXPECT:` lines by substring.
+  - (-) Tab-expanding editors may show different columns than the compiler.
+
+## D-015 Phase 1 `main.py` always prints the tokens and an errors section
+
+- **Context**: D-007 grows `main.py` one stage per phase; SPEC section 12 says no flag means `--all`.
+- **Decision**: In Phase 1 the only stage is tokens, so any accepted invocation prints `== TOKENS ==` then
+  `== ERRORS ==` (so lexical errors are visible next to the table). Unknown flags or a wrong number of paths
+  give exit code 2 and a usage line on stderr; unreadable files also give 2. Exit 1 if any lexical error.
+  `run(path, flags) -> int` matches interfaces.md. `main.py` inserts the repo root into `sys.path` so
+  `python src/main.py` works.
+- **Trade-offs**:
+  - (+) Runnable end-to-end check now.
+  - (-) Other flags are rejected until their phases; Phase 7 will rewrite the flag handling.
+
+## D-016 Valid token samples are full SmartLang programs; EXPECT-file checks live in test_lexer.py
+
+- **Context**: SPEC section 13 says every file in `tests/valid/` is `// EXPECT: OK`, and `test_programs.py` (a later
+  phase) will run the whole pipeline on it.
+- **Decision**: `tests/valid/tokens_*.sl` are meant to be grammatical and type-correct programs, not loose token
+  lists. In Phase 1 `test_lexer.py` itself reads the `// EXPECT:` lines of `tests/invalid/lexical_*.sl` and checks
+  kind, line and message substring; it also checks that the valid files lex without errors.
+- **Trade-offs**:
+  - (+) The same files can keep working in later phases.
+  - (-) They have not been run through a parser or semantic analyzer (not built yet), so their validity beyond
+    tokens is unverified until Phases 2 and 5.

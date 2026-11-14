@@ -5,7 +5,7 @@ Deadline: Dec 5, 2026. Tick a phase only after the user has verified it.
 ## Phase checklist
 
 - [x] Phase 0: Scaffold and shared foundation (Nov 14 to 16) - built, 17 tests pass, awaiting user verification and commit
-- [ ] Phase 1: Lexical analyzer (Nov 17 to 18)
+- [~] Phase 1: Lexical analyzer (Nov 17 to 18) - built, 145 tests pass (full suite), awaiting user verification and commit
 - [ ] Phase 2: Parser and parse tree (Nov 19 to 22)
 - [ ] Phase 3: Syntax error detection and recovery (Nov 23 to 24)
 - [ ] Phase 4: Symbol table (Nov 25)
@@ -19,11 +19,22 @@ Deadline: Dec 5, 2026. Tick a phase only after the user has verified it.
 
 - `brew install graphviz` was not run (global install, outside the rules); the `dot` binary is not verified yet (needed in Phase 2).
 
+- Unterminated char literal swallows the rest of its line, and unterminated `/*` swallows the rest of the file (D-013); known limitation.
+- `tests/valid/tokens_*.sl` are not yet checked by a parser or semantic analyzer (D-016).
+- Phase 0 was not yet committed/tagged when Phase 1 started (the working tree holds both).
+
 ## Later
 
 - Phase 2 needs the `dot` binary (`brew install graphviz`) for `--tree-png`.
+- Phase 2: parser must skip INVALID tokens silently (interfaces.md); re-run `tests/valid/*.sl` through the parser.
+- Phase 3: syntax tests that contain INVALID tokens may produce follow-on syntax errors; decide how to handle them.
+- Phase 7: replace the Phase 1 flag handling in `main.py` (D-015); no flag must mean `--all`.
+- Phase 8: `test_programs.py` should run `tests/valid` and `tests/invalid` end to end (EXPECT lines are already in place for lexical cases).
 
 ## Next step
 
-Verify Phase 0 yourself: `source .venv/bin/activate && pytest -q`, read `src/errors.py`, check
-`git status` and `git diff --stat`, then commit and tag (`git add -A && git commit -m "phase-0: scaffold, tokens and errors modules with tests" && git tag phase-0`). After that, Phase 1: Lexical analyzer in a fresh conversation.
+Verify Phase 1 yourself: `source .venv/bin/activate && pytest -v`, read `src/lexer.py`, run
+`python src/main.py samples/invalid_lexical.sl --tokens`, check `git status`, then commit and tag:
+`git add -A && git commit -m "phase-1: hand-written lexer, --tokens CLI stage and tests" && git tag phase-1`
+(Phase 0 files are still uncommitted if you did not commit them earlier; consider committing phase-0 first.)
+Then Phase 2: Parser and parse tree, in a fresh conversation.

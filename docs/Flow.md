@@ -2,7 +2,7 @@
 
 Tags: `[PLANNED]` until built, then `[BUILT]`.
 
-## 1. Pipeline diagram [PLANNED]
+## 1. Pipeline diagram [PLANNED; the source → lexer → tokens → main stage is BUILT]
 
 ```mermaid
 flowchart LR
@@ -18,7 +18,7 @@ flowchart LR
     ERR -.-> OUT
 ```
 
-## 2. Data passed between stages [PLANNED]
+## 2. Data passed between stages [PLANNED; lexer row and the tokens part of main are BUILT]
 
 | Stage | Input | Output | Notes |
 |---|---|---|---|
@@ -51,20 +51,26 @@ flowchart TD
 
 ## 4. Module table
 
-Status per module: `tokens.py` and `errors.py` are [BUILT] (Phase 0); all others are [PLANNED].
+Status per module: `tokens.py` and `errors.py` are [BUILT] (Phase 0); `lexer.py` is [BUILT] (Phase 1);
+`main.py` is partly built (`--tokens` only, Phase 1); all others are [PLANNED].
+
+Lexer internals [BUILT]: `tokenize` creates a `Lexer`; `scan_next` picks a scanner by the first character:
+whitespace/comments skipped, `scan_word` (identifier or keyword), `scan_number` (int, float or one INVALID run),
+`scan_char` (char literal or INVALID), `scan_operator_or_delimiter` (two-character operators first, then single
+characters, anything else INVALID). Every INVALID token also reports a Lexical error. The result always ends with EOF.
 
 | Module | Status | Public interface | Depends on |
 |---|---|---|---|
 | `tokens.py` | [BUILT] | `TokenType`, `Token(type, lexeme, line, col)` | none |
 | `errors.py` | [BUILT] | `CompilerError`, `ErrorCollector` (`report`, `has_errors`, `has_kind`, `all`) | none |
-| `lexer.py` | [PLANNED] | `tokenize(source, errors) -> list[Token]` | `tokens`, `errors` |
+| `lexer.py` | [BUILT] | `tokenize(source, errors) -> list[Token]` | `tokens`, `errors` |
 | `ast_nodes.py` | [PLANNED] | node dataclasses with `label()` and `children()` | none |
 | `parser.py` | [PLANNED] | `parse(tokens, errors) -> Program` | `tokens`, `errors`, `ast_nodes` |
 | `tree_export.py` | [PLANNED] | `tree_to_text`, `tree_to_dot`, `export_png` | `ast_nodes` only |
 | `symbol_table.py` | [PLANNED] | `Symbol`, `SymbolTable` (`enter_scope`, `exit_scope`, `declare`, `lookup`, `lookup_current`, `current_level`, `dump`) | none |
 | `semantic.py` | [PLANNED] | `analyze(tree, errors) -> SymbolTable` | `parser` outputs, `ast_nodes`, `symbol_table`, `errors` |
 | `tacgen.py` | [PLANNED] | `generate(tree) -> list[str]` | `semantic` annotations, `ast_nodes` |
-| `main.py` | [PLANNED] | `run(path, flags) -> int` | all of the above |
+| `main.py` | [BUILT: `--tokens` only] | `run(path, flags) -> int` | `lexer`, `errors`, `tokens` now; all of the above later |
 
 Dependency direction (no cycles):
 `tokens, errors` ← `lexer` ← `parser` (also `ast_nodes`) ← `semantic` (uses `symbol_table`) ← `tacgen` ← `main`.

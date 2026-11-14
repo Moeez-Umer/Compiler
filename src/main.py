@@ -66,8 +66,8 @@ def run(path: str, flags: set[str]) -> int:
 
 def parse_args(argv: list[str]) -> tuple[str, set[str]] | None:
     """Split argv into (path, flags); None on a usage error."""
-    paths = [a for a in argv if not a.startswith("--")]
-    flags = {a for a in argv if a.startswith("--")}
+    paths = [a for a in argv if not a.startswith("-")]
+    flags = {a for a in argv if a.startswith("-")}
     if len(paths) != 1 or not flags <= KNOWN_FLAGS:
         return None
     return paths[0], flags

@@ -4,8 +4,8 @@ Deadline: Dec 5, 2026. Tick a phase only after the user has verified it.
 
 ## Phase checklist
 
-- [x] Phase 0: Scaffold and shared foundation (Nov 14 to 16) - built, 17 tests pass, awaiting user verification and commit
-- [~] Phase 1: Lexical analyzer (Nov 17 to 18) - built, 145 tests pass (full suite), awaiting user verification and commit
+- [x] Phase 0: Scaffold and shared foundation (Nov 14 to 16) - verified and committed (`dd89427`, tag `phase-0`)
+- [~] Phase 1: Lexical analyzer (Nov 17 to 18) - built, 151 tests pass (full suite), awaiting user verification and commit
 - [ ] Phase 2: Parser and parse tree (Nov 19 to 22)
 - [ ] Phase 3: Syntax error detection and recovery (Nov 23 to 24)
 - [ ] Phase 4: Symbol table (Nov 25)
@@ -21,7 +21,6 @@ Deadline: Dec 5, 2026. Tick a phase only after the user has verified it.
 
 - Unterminated char literal swallows the rest of its line, and unterminated `/*` swallows the rest of the file (D-013); known limitation.
 - `tests/valid/tokens_*.sl` are not yet checked by a parser or semantic analyzer (D-016).
-- Phase 0 was not yet committed/tagged when Phase 1 started (the working tree holds both).
 
 ## Later
 
@@ -33,8 +32,6 @@ Deadline: Dec 5, 2026. Tick a phase only after the user has verified it.
 
 ## Next step
 
-Verify Phase 1 yourself: `source .venv/bin/activate && pytest -v`, read `src/lexer.py`, run
-`python src/main.py samples/invalid_lexical.sl --tokens`, check `git status`, then commit and tag:
-`git add -A && git commit -m "phase-1: hand-written lexer, --tokens CLI stage and tests" && git tag phase-1`
-(Phase 0 files are still uncommitted if you did not commit them earlier; consider committing phase-0 first.)
+Verify Phase 1 follow-up yourself: `source .venv/bin/activate && pytest -v`, check `git status` and `git diff`,
+then commit and update the tag if desired.
 Then Phase 2: Parser and parse tree, in a fresh conversation.

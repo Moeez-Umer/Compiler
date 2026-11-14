@@ -57,3 +57,7 @@
 - Decisions made (with Decisions.md entry ids)
 - NOT OBSERVED / UNVERIFIED
 - Proposed commit message and tag
+
+27. At the start of every session run `git status` and `git log --oneline --decorate -5` and paste the output
+    VERBATIM. Never describe git state (committed, pushed, tagged) from memory or from docs. If a doc says
+    something about git state that the commands contradict, fix the doc.

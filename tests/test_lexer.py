@@ -5,6 +5,7 @@ import pytest
 
 from src.errors import ErrorCollector
 from src.lexer import tokenize
+from src.main import main as cli_main
 from src.tokens import Token, TokenType
 
 T = TokenType
@@ -357,3 +358,43 @@ def test_valid_files_have_no_lexical_errors(path):
 
 def test_valid_dir_has_token_samples():
     assert len(VALID_FILES) >= 3
+
+
+# ---------- CLI error cases (SPEC section 12: exit code 2) ----------
+
+def assert_cli_exit_2(argv, capsys, stderr_part):
+    """Run cli_main(argv); assert exit code 2, empty stdout, and a one-line message on stderr."""
+    code = cli_main(argv)
+    captured = capsys.readouterr()
+    assert code == 2
+    assert captured.out == ""
+    err_lines = captured.err.splitlines()
+    assert len(err_lines) == 1
+    assert stderr_part in err_lines[0]
+
+
+def test_cli_no_arguments_exits_2(capsys):
+    assert_cli_exit_2([], capsys, "usage:")
+
+
+def test_cli_missing_file_exits_2(capsys):
+    assert_cli_exit_2(["does_not_exist.sl", "--tokens"], capsys, "cannot read 'does_not_exist.sl'")
+
+
+def test_cli_unknown_flag_exits_2(capsys):
+    assert_cli_exit_2(["samples/valid_all_tokens.sl", "--unknown"], capsys, "usage:")
+
+
+def test_cli_short_unknown_flag_exits_2(capsys):
+    assert_cli_exit_2(["-x"], capsys, "usage:")
+
+
+def test_cli_directory_path_exits_2(capsys):
+    assert_cli_exit_2(["samples", "--tokens"], capsys, "cannot read 'samples'")
+
+
+def test_cli_invalid_utf8_file_exits_2(tmp_path, capsys):
+    bad_file = tmp_path / "bad_utf8.sl"
+    bad_file.write_bytes(b"int x = \xff\xfe;\n")
+    assert_cli_exit_2([str(bad_file), "--tokens"], capsys, f"cannot read '{bad_file}'")
+

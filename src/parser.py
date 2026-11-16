@@ -36,11 +36,13 @@ class ParseError(Exception):
     Never escapes parse(): it is caught there and turned into a Syntax error.
     """
 
-    def __init__(self, line: int, col: int, message: str):
+    def __init__(self, line: int, col: int, message: str, after_invalid: bool = False):
         super().__init__(message)
         self.line = line
         self.col = col
         self.message = message
+        # True when the offending token comes right after a skipped INVALID token (D-020).
+        self.after_invalid = after_invalid
 
 
 class Parser:
@@ -48,7 +50,19 @@ class Parser:
 
     def __init__(self, tokens: list[Token]):
         # INVALID tokens were already reported by the lexer, so skip them silently.
-        self.tokens = [t for t in tokens if t.type != TokenType.INVALID]
+        # `after_invalid` remembers which kept tokens followed a skipped one, so a
+        # syntax error caused only by the missing token is not reported twice (D-020).
+        self.tokens: list[Token] = []
+        self.after_invalid: set[int] = set()
+        skipped = False
+        for token in tokens:
+            if token.type == TokenType.INVALID:
+                skipped = True
+                continue
+            if skipped:
+                self.after_invalid.add(len(self.tokens))
+                skipped = False
+            self.tokens.append(token)
         self.pos = 0
 
     # ------------------------------------------------------------ helpers
@@ -81,10 +95,15 @@ class Parser:
         token = self.peek()
         return "end of file" if token.type == TokenType.EOF else f"'{token.lexeme}'"
 
+    def follows_invalid(self) -> bool:
+        """True if the current token directly follows a skipped INVALID token."""
+        return min(self.pos, len(self.tokens) - 1) in self.after_invalid
+
     def fail(self, expected: str) -> ParseError:
         """Build the error for the current token: `Expected X but found Y`."""
         token = self.peek()
-        return ParseError(token.line, token.col, f"Expected {expected} but found {self.found()}")
+        return ParseError(token.line, token.col, f"Expected {expected} but found {self.found()}",
+                          after_invalid=self.follows_invalid())
 
     def expect(self, lexeme: str) -> Token:
         """Consume the keyword, operator or delimiter `lexeme`, or fail."""
@@ -107,7 +126,9 @@ class Parser:
             while self.peek().type != TokenType.EOF:
                 items.append(self.parse_top_level())
         except ParseError as error:
-            errors.report("Syntax", error.line, error.col, error.message)
+            # The lexer already reported the INVALID token that caused this error (D-020).
+            if not error.after_invalid:
+                errors.report("Syntax", error.line, error.col, error.message)
         except RecursionError:
             token = self.peek()
             errors.report("Syntax", token.line, token.col, "Program is nested too deeply")

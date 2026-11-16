@@ -284,3 +284,27 @@ Changes to SPEC.md or frozen interfaces must be logged here.
   - (+) Interface stays source compatible; Phase 7 can fold it into the final CLI.
   - (-) `run` now differs textually from interfaces.md until the interface doc is updated with approval.
   - (-) Syntax errors are only visible when a tree flag is given until Phase 7 makes the full pipeline the default.
+- **Status**: Approved by the user (Phase 2 follow-up). `docs/interfaces.md` now shows the new `run()` signature.
+
+## D-020 INVALID tokens are skipped and syntax errors right after them are suppressed
+
+- **Context**: interfaces.md says the parser skips INVALID tokens silently, because the lexer already reported them.
+  Skipping alone caused follow-on noise: in `int a = 5 @ 1;` the parser dropped `@` and then reported
+  `Expected ';' but found '1'` (observed with `samples/invalid_lexical.sl` before this change). The same happens for
+  `int g = 9abc;` (the INVALID run disappears, so the parser sees `= ;`) and for `char h = 'a;` (D-013: the literal
+  swallows the `;`).
+- **Options considered**:
+  1. Keep skipping only; accept the extra Syntax errors.
+  2. Skip INVALID tokens, remember which kept tokens directly follow a skipped one, and do not report a syntax
+     error whose offending token is one of them.
+  3. Make the parser fail at the INVALID token and report nothing else.
+- **Decision**: Option 2. `Parser.__init__` builds the filtered token list and the set `after_invalid`; `fail()` sets
+  `ParseError.after_invalid`; `parse_program` still stops at that error (no recovery before Phase 3) but does not
+  report it. A comment-only note was added to `parser.py` in interfaces.md; no signature changed.
+- **Trade-offs**:
+  - (+) One mistake gives one error; a lexical error is never followed by a misleading syntax error.
+  - (-) The parse still stops there, so later genuine syntax errors in the same file stay hidden until Phase 3 recovery.
+  - (-) If the offending token follows an INVALID token but is itself wrong, that error is hidden too. Fixing the lexical
+    error exposes it on the next run.
+  - (-) Relies on the lexer having reported the INVALID token. Tokens built by hand without a lexical error would
+    fail silently (cannot happen via `main.py`).

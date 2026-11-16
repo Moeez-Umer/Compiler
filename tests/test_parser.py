@@ -528,3 +528,50 @@ def test_cli_tree_png_missing_dot_gives_clear_message(tmp_path, capsys, monkeypa
     captured = capsys.readouterr()
     assert code == 2
     assert "dot" in captured.err and "graphviz" in captured.err.lower()
+
+
+# ------------------------------------- D-020: INVALID tokens and follow-on errors
+
+def kinds_and_lines(errors: ErrorCollector) -> list[tuple[str, int]]:
+    """Short summary of collected errors: (kind, line) in report order."""
+    return [(e.kind, e.line) for e in errors.all()]
+
+
+def test_glued_number_gives_one_lexical_error_and_no_syntax_error():
+    _, errors = parse_source("int g = 9abc;\n")
+    assert kinds_and_lines(errors) == [("Lexical", 1)]
+
+
+def test_unterminated_char_literal_gives_no_follow_on_syntax_error():
+    # The INVALID token `'a;` swallows the `;`, so the next token is the closing brace.
+    _, errors = parse_source("int main() {\n  char h = 'a;\n}\n")
+    assert kinds_and_lines(errors) == [("Lexical", 2)]
+
+
+def test_invalid_token_between_operands_gives_no_follow_on_syntax_error():
+    # `5 @ 1`: the parser would otherwise complain about the `1` after the `@`.
+    _, errors = parse_source("int main() { int a = 5 @ 1; return a; }")
+    assert kinds_and_lines(errors) == [("Lexical", 1)]
+
+
+def test_syntax_error_far_from_an_invalid_token_is_reported():
+    _, errors = parse_source("int main() {\n  int x = 1\n  return x; @\n}\n")
+    assert kinds_and_lines(errors) == [("Lexical", 3), ("Syntax", 3)]
+
+
+def test_invalid_token_at_end_of_file_is_silent():
+    _, errors = parse_source("int main() { return 1; } /*")
+    assert kinds_and_lines(errors) == [("Lexical", 1)]
+
+
+def test_valid_program_with_invalid_token_keeps_earlier_items():
+    tree, errors = parse_source("int a = 1;\nint b = 9abc;\n")
+    assert [i.name for i in tree.items] == ["a"]
+    assert kinds_and_lines(errors) == [("Lexical", 2)]
+
+
+def test_cli_invalid_lexical_sample_has_no_follow_on_syntax_error(capsys):
+    code = run("samples/invalid_lexical.sl", {"--tree"})
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "[Syntax Error]" not in out

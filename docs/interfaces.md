@@ -77,6 +77,8 @@ Annotations added by the semantic analyzer (default `None` until analysis runs):
 ```python
 def parse(tokens: list[Token], errors: ErrorCollector) -> Program
 # Never raises, never loops forever. INVALID tokens are skipped silently (already reported).
+# A syntax error whose offending token comes right after a skipped INVALID token is also not
+# reported (the lexer error already covers it; D-020).
 # On syntax errors reports Syntax errors and returns the best partial tree.
 ```
 
@@ -129,7 +131,9 @@ def generate(tree: Program) -> list[str]
 ## main.py
 
 ```python
-def run(path: str, flags: set[str]) -> int      # returns exit code; prints sections per SPEC section 12
+def run(path: str, flags: set[str], png_path: str | None = None) -> int
+# returns exit code; prints sections per SPEC section 12.
+# png_path is the PATH of --tree-png (D-019, approved by the user); callers may omit it.
 ```
 
 ## Dependency direction (no cycles)

@@ -6,7 +6,7 @@ Deadline: Dec 5, 2026. Tick a phase only after the user has verified it.
 
 - [x] Phase 0: Scaffold and shared foundation (Nov 14 to 16) - verified and committed (`dd89427`, tag `phase-0`)
 - [x] Phase 1: Lexical analyzer (Nov 17 to 18) - committed (`6eb841c`, `3ff3215`), tag `phase-1` (per `git log`)
-- [~] Phase 2: Parser and parse tree (Nov 19 to 22) - built, 232 tests pass (full suite), awaiting user verification and commit
+- [~] Phase 2: Parser and parse tree (Nov 19 to 22) - built; Phase 2 code was committed inside `efc5123` (labelled "Phase 0 corrections", tag `phase-0-done`); follow-up (D-020) is uncommitted, 239 tests pass; no `phase-2` tag yet, awaiting user verification
 - [ ] Phase 3: Syntax error detection and recovery (Nov 23 to 24)
 - [ ] Phase 4: Symbol table (Nov 25)
 - [ ] Phase 5: Semantic analyzer (Nov 26 to 29)
@@ -17,7 +17,9 @@ Deadline: Dec 5, 2026. Tick a phase only after the user has verified it.
 
 ## Open issues
 
-- Phase 2: `run()` gained an optional `png_path` parameter (D-019); interfaces.md is not edited yet, needs approval.
+- Git: Phase 2 commit message is misleading (`efc5123` "Phase 0 corrections"); decide whether to tag the follow-up commit `phase-2`. Not rewritten by the agent.
+- Phase 2: `run()` gained an optional `png_path` parameter (D-019), approved; interfaces.md updated.
+- Phase 2 (D-020): syntax errors right after an INVALID token are suppressed; the parse still stops at the first error until Phase 3.
 - Phase 2: only the first syntax error is reported, no recovery (D-018); Phase 3.
 - Phase 2: `--tree-png` output (`samples/valid_program_tree.png`) is about 175 KB, 3112 x 827 px, wide but readable when zoomed.
 
@@ -34,6 +36,6 @@ Deadline: Dec 5, 2026. Tick a phase only after the user has verified it.
 
 ## Next step
 
-Verify Phase 2 yourself: `source .venv/bin/activate && pytest -v`, `python src/main.py samples/valid_program.sl --tree`, open
-`samples/valid_program_tree.png`, check `git status`, then commit (`phase-2: parser, parse tree, tree export`) and `git tag phase-2`.
+Verify the Phase 2 follow-up yourself: `source .venv/bin/activate && pytest -v`, `python src/main.py samples/invalid_lexical.sl --tree`, check `git status`,
+then commit (`phase-2: follow-up, INVALID-token handling and docs`) and `git tag phase-2`.
 Then Phase 3: syntax error detection and recovery, in a fresh conversation.

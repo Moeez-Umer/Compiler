@@ -75,8 +75,16 @@ flowchart TD
 ## 4. Module table
 
 Status per module: `tokens.py` and `errors.py` are [BUILT] (Phase 0); `lexer.py` is [BUILT] (Phase 1);
-`ast_nodes.py`, `parser.py`, `tree_export.py` are [BUILT] (Phase 2, valid programs only);
+`ast_nodes.py`, `parser.py`, `tree_export.py` are [BUILT] (Phases 2 and 3); `symbol_table.py` is [BUILT] (Phase 4);
 `main.py` is partly built (`--tokens` Phase 1, `--tree` and `--tree-png` Phase 2); all others are [PLANNED].
+
+Symbol table internals [BUILT]: `SymbolTable` maintains two lists of `_Scope` records: `_active` (the currently open
+lexical scopes from outermost `global` to innermost) and `_all_scopes` (append-only creation-order history of every scope
+ever entered). `enter_scope(label)` pushes a new `_Scope` onto both lists and returns its sequential `scope_id`;
+`exit_scope()` pops from `_active` only so exited scopes remain available for `dump()`. `declare(symbol)` returns `False`
+(keeping the original `Symbol`) on same-scope redeclaration, and otherwise sets `symbol.scope_level` to the current
+scope's level and stores `symbol` in `_active[-1]`; `lookup(name)` walks `reversed(_active)` outward;
+`lookup_current(name)` checks only `_active[-1]`; `dump()` formats every scope in `_all_scopes` (D-027).
 
 Parser internals [BUILT]: `parse` creates a `Parser` (INVALID tokens filtered out) and calls `parse_program`, which loops
 `parse_top_level` until EOF. Each grammar rule of SPEC section 6 has a method of the same name (`parse_if_stmt`, `parse_for_stmt`,
@@ -101,7 +109,7 @@ characters, anything else INVALID). Every INVALID token also reports a Lexical e
 | `ast_nodes.py` | [BUILT] | node dataclasses with `label()` and `children()` | none |
 | `parser.py` | [BUILT: panic-mode recovery, partial tree] | `parse(tokens, errors) -> Program` | `tokens`, `errors`, `ast_nodes` |
 | `tree_export.py` | [BUILT] | `tree_to_text`, `tree_to_dot`, `export_png` | `ast_nodes` only |
-| `symbol_table.py` | [PLANNED] | `Symbol`, `SymbolTable` (`enter_scope`, `exit_scope`, `declare`, `lookup`, `lookup_current`, `current_level`, `dump`) | none |
+| `symbol_table.py` | [BUILT] | `Symbol`, `SymbolTable` (`enter_scope`, `exit_scope`, `declare`, `lookup`, `lookup_current`, `current_level`, `dump`) | none |
 | `semantic.py` | [PLANNED] | `analyze(tree, errors) -> SymbolTable` | `parser` outputs, `ast_nodes`, `symbol_table`, `errors` |
 | `tacgen.py` | [PLANNED] | `generate(tree) -> list[str]` | `semantic` annotations, `ast_nodes` |
 | `main.py` | [BUILT: `--tokens`, `--tree`, `--tree-png`] | `run(path, flags, png_path=None) -> int` (D-019) | `lexer`, `parser`, `tree_export`, `errors`, `tokens` now; all of the above later |

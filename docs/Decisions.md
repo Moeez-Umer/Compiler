@@ -429,3 +429,37 @@ Changes to SPEC.md or frozen interfaces must be logged here.
   - (-) Adds `conftest.py` at the repository root.
   - (-) Any test that calls `signal.alarm(...)` itself (such as `time_limit(60)` in the fuzz tests) overrides the
     10-second alarm for the duration of its `with` block, then restores the handler on exit.
+
+## D-027 `SymbolTable` scope history, `current_level` convention, `scope_level` assignment, and `dump()` table format
+
+- **Context**: `interfaces.md` freezes `Symbol` and `SymbolTable` (`enter_scope(label) -> int`, `exit_scope()`,
+  `declare(symbol) -> bool`, `lookup(name)`, `lookup_current(name)`, `current_level() -> int`, `dump() -> str`), and
+  SPEC section 10 requires `dump()` to print every scope that existed (including exited ones), labelled e.g.
+  `Scope 0 (global)`, `Scope 1 (function sumSquares)`, `Scope 2 (block)`, with each symbol's name, type, kind, scope
+  level, line, and function return type plus parameter list.
+- **Options considered**:
+  1. Parent-pointer tree of scopes vs. two lists of shared `_Scope` records (`_active` stack + `_all_scopes` history).
+  2. Auto-create `Scope 0 (global)` in `SymbolTable.__init__()` vs. require an explicit `enter_scope("global")` call.
+  3. Overwrite vs. keep the original `Symbol` when `declare()` sees a redeclaration in the same scope.
+  4. Trust the `scope_level` passed into `Symbol(...)` vs. have `declare()` set `symbol.scope_level` to the current scope's level.
+- **Decision**:
+  - Two lists of shared `_Scope` records: `_active` holds the currently open scopes from outermost to innermost (used by
+    `declare`, `lookup`, `lookup_current`, `current_level`), and `_all_scopes` holds every scope ever created in creation
+    order `0, 1, 2, ...` (used by `dump`). `exit_scope()` pops from `_active` only.
+  - `SymbolTable()` starts with no active scopes (`current_level() == -1`); `enter_scope("global")` opens `Scope 0 (global)`
+    at nesting level `0` and returns `0`, so every scope uses `enter_scope(label) -> int` uniformly. Calling `declare()`
+    or `exit_scope()` when `_active` is empty raises `RuntimeError`.
+  - On same-scope redeclaration, `declare()` returns `False` and leaves the first `Symbol` untouched so subsequent
+    lookups in semantic analysis resolve to the original declaration.
+  - On a valid declaration, `declare()` sets `symbol.scope_level = self._active[-1].level` before storing `symbol`, so a
+    stored symbol's `scope_level` can never disagree with the scope it was declared in.
+  - `dump()` formats each scope in `_all_scopes` (separated by a blank line) with header `Scope <id> (<label>)` followed
+    by a two-space-indented aligned table (`NAME`, `TYPE`, `KIND`, `LEVEL`, `LINE`, `PARAMS`, where `PARAMS` is
+    `(type name, ...)` or `()` when `params is not None` and `-` otherwise), or `  (empty)` when a scope has no symbols.
+- **Trade-offs**:
+  - (+) `lookup()` walks `reversed(self._active)` and can never accidentally match an exited sibling scope, while `dump()`
+    prints every scope ever entered in creation order.
+  - (+) Uniform `enter_scope(label) -> int` contract for `global`, `function <name>`, `for`, and `block` scopes.
+  - (+) Setting `symbol.scope_level` inside `declare()` eliminates any mismatch between a symbol's stored level and its scope.
+  - (-) The caller (Phase 5 `semantic.py` or tests) must call `enter_scope("global")` before declaring top-level symbols.
+  - (-) `declare()` mutates `symbol.scope_level` in place (`Symbol` is a non-frozen dataclass in `interfaces.md`).

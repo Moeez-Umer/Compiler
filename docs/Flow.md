@@ -2,7 +2,7 @@
 
 Tags: `[PLANNED]` until built, then `[BUILT]`.
 
-## 1. Pipeline diagram [PLANNED; the source → lexer → tokens → main stage is BUILT]
+## 1. Pipeline diagram [PLANNED; source → lexer → parser → tree output in main is BUILT]
 
 ```mermaid
 flowchart LR
@@ -18,12 +18,12 @@ flowchart LR
     ERR -.-> OUT
 ```
 
-## 2. Data passed between stages [PLANNED; lexer row and the tokens part of main are BUILT]
+## 2. Data passed between stages [PLANNED; lexer and parser rows and the tokens/tree parts of main are BUILT]
 
 | Stage | Input | Output | Notes |
 |---|---|---|---|
 | lexer | source text, `ErrorCollector` | `list[Token]` | Always ends with `EOF`. Bad input becomes `INVALID` tokens plus a Lexical error. |
-| parser | `list[Token]`, `ErrorCollector` | `Program` tree | Never raises or hangs. Skips `INVALID` tokens silently. Returns best partial tree after syntax errors. |
+| parser [BUILT, valid programs; recovery is Phase 3] | `list[Token]`, `ErrorCollector` | `Program` tree | Never raises or hangs. Skips `INVALID` tokens silently. Returns best partial tree after syntax errors. |
 | semantic | `Program`, `ErrorCollector` | `SymbolTable`, plus annotations on the tree | Annotations: `expr_type`, `tac_name`, `scope_id`. Pass 1 collects function signatures, pass 2 checks bodies. |
 | tacgen | annotated `Program` | `list[str]` | Precondition: zero errors. Temporaries `t1..`, labels `L1..`, numbered per program. |
 | main | path, flags | exit code | Prints sections in order: tokens, tree, symbol tables, errors, TAC. |
@@ -52,7 +52,17 @@ flowchart TD
 ## 4. Module table
 
 Status per module: `tokens.py` and `errors.py` are [BUILT] (Phase 0); `lexer.py` is [BUILT] (Phase 1);
-`main.py` is partly built (`--tokens` only, Phase 1); all others are [PLANNED].
+`ast_nodes.py`, `parser.py`, `tree_export.py` are [BUILT] (Phase 2, valid programs only);
+`main.py` is partly built (`--tokens` Phase 1, `--tree` and `--tree-png` Phase 2); all others are [PLANNED].
+
+Parser internals [BUILT]: `parse` creates a `Parser` (INVALID tokens filtered out) and calls `parse_program`, which loops
+`parse_top_level` until EOF. Each grammar rule of SPEC section 6 has a method of the same name (`parse_if_stmt`, `parse_for_stmt`,
+`parse_add_expr`, ...). The six binary levels (`parse_or_expr` to `parse_term`) share `parse_binary_level`, a loop that wraps the
+tree so far as the left child (left associativity); calling them in layers gives precedence. A level with one operand returns it
+unchanged (D-004), so only `BinaryOp`, `UnaryOp`, `Literal`, `Identifier` and `Call` nodes exist. `else if` is an `If` stored in
+`else_branch`. Phase 2 has no recovery: the first `ParseError` is reported once and the finished top-level items are returned (D-018).
+
+Tree export [BUILT]: `tree_to_text` and `tree_to_dot` walk the tree with `label()` and `children()`; `export_png` pipes the DOT through the `graphviz` package and writes the PNG bytes (no stray `.gv` file), raises `RuntimeError` with an install hint if `dot` is missing.
 
 Lexer internals [BUILT]: `tokenize` creates a `Lexer`; `scan_next` picks a scanner by the first character:
 whitespace/comments skipped, `scan_word` (identifier or keyword), `scan_number` (int, float or one INVALID run),
@@ -64,13 +74,13 @@ characters, anything else INVALID). Every INVALID token also reports a Lexical e
 | `tokens.py` | [BUILT] | `TokenType`, `Token(type, lexeme, line, col)` | none |
 | `errors.py` | [BUILT] | `CompilerError`, `ErrorCollector` (`report`, `has_errors`, `has_kind`, `all`) | none |
 | `lexer.py` | [BUILT] | `tokenize(source, errors) -> list[Token]` | `tokens`, `errors` |
-| `ast_nodes.py` | [PLANNED] | node dataclasses with `label()` and `children()` | none |
-| `parser.py` | [PLANNED] | `parse(tokens, errors) -> Program` | `tokens`, `errors`, `ast_nodes` |
-| `tree_export.py` | [PLANNED] | `tree_to_text`, `tree_to_dot`, `export_png` | `ast_nodes` only |
+| `ast_nodes.py` | [BUILT] | node dataclasses with `label()` and `children()` | none |
+| `parser.py` | [BUILT: valid programs only] | `parse(tokens, errors) -> Program` | `tokens`, `errors`, `ast_nodes` |
+| `tree_export.py` | [BUILT] | `tree_to_text`, `tree_to_dot`, `export_png` | `ast_nodes` only |
 | `symbol_table.py` | [PLANNED] | `Symbol`, `SymbolTable` (`enter_scope`, `exit_scope`, `declare`, `lookup`, `lookup_current`, `current_level`, `dump`) | none |
 | `semantic.py` | [PLANNED] | `analyze(tree, errors) -> SymbolTable` | `parser` outputs, `ast_nodes`, `symbol_table`, `errors` |
 | `tacgen.py` | [PLANNED] | `generate(tree) -> list[str]` | `semantic` annotations, `ast_nodes` |
-| `main.py` | [BUILT: `--tokens` only] | `run(path, flags) -> int` | `lexer`, `errors`, `tokens` now; all of the above later |
+| `main.py` | [BUILT: `--tokens`, `--tree`, `--tree-png`] | `run(path, flags, png_path=None) -> int` (D-019) | `lexer`, `parser`, `tree_export`, `errors`, `tokens` now; all of the above later |
 
 Dependency direction (no cycles):
 `tokens, errors` ← `lexer` ← `parser` (also `ast_nodes`) ← `semantic` (uses `symbol_table`) ← `tacgen` ← `main`.

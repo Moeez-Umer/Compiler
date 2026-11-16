@@ -1,6 +1,6 @@
 """SmartLang compiler command line (SPEC section 12, interfaces.md: main.py).
 
-Phase 1: only the --tokens stage exists. Later phases add one stage each (D-007).
+Phase 2: --tokens and --tree / --tree-png exist. Later phases add one stage each (D-007).
 This is the only module that prints.
 """
 import os
@@ -12,14 +12,16 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.errors import ErrorCollector  # noqa: E402
 from src.lexer import tokenize  # noqa: E402
+from src.parser import parse  # noqa: E402
 from src.tokens import Token  # noqa: E402
+from src.tree_export import export_png, tree_to_text  # noqa: E402
 
 EXIT_OK = 0
 EXIT_COMPILE_ERROR = 1
 EXIT_USAGE = 2
 
-KNOWN_FLAGS = {"--tokens"}
-USAGE = "usage: python src/main.py prog.sl [--tokens]"
+KNOWN_FLAGS = {"--tokens", "--tree", "--tree-png"}
+USAGE = "usage: python src/main.py prog.sl [--tokens] [--tree] [--tree-png PATH]"
 
 
 def format_token_table(tokens: list[Token]) -> str:
@@ -45,32 +47,76 @@ def read_source(path: str) -> str | None:
         return None
 
 
-def run(path: str, flags: set[str]) -> int:
-    """Compile one file and print the requested sections. Returns the exit code."""
+def run(path: str, flags: set[str], png_path: str | None = None) -> int:
+    """Compile one file and print the requested sections. Returns the exit code.
+
+    `png_path` is the PATH argument of --tree-png (D-019); `flags` holds the flag names.
+    """
     source = read_source(path)
     if source is None:
         return EXIT_USAGE
     errors = ErrorCollector()
     tokens = tokenize(source, errors)
-    # Phase 1 has only one stage, so every flag combination prints the token table.
     print("== TOKENS ==")
     print(format_token_table(tokens))
     print()
+    # Parse only when a tree output was asked for; syntax errors are reported then (D-019).
+    tree = parse(tokens, errors) if wants_tree(flags) else None
+    if tree is not None and "--tree" in flags:
+        print("== PARSE TREE ==")
+        print(tree_to_text(tree))
+        print()
     print("== ERRORS ==")
     for error in errors.all():
         print(error.format())
     if not errors.has_errors():
         print("(none)")
+    if tree is not None and "--tree-png" in flags:
+        if not write_png(tree, png_path):
+            return EXIT_USAGE
     return EXIT_COMPILE_ERROR if errors.has_errors() else EXIT_OK
 
 
-def parse_args(argv: list[str]) -> tuple[str, set[str]] | None:
-    """Split argv into (path, flags); None on a usage error."""
-    paths = [a for a in argv if not a.startswith("-")]
-    flags = {a for a in argv if a.startswith("-")}
+def wants_tree(flags: set[str]) -> bool:
+    """True if any requested output needs the parse tree."""
+    return "--tree" in flags or "--tree-png" in flags
+
+
+def write_png(tree, png_path: str | None) -> bool:
+    """Write the tree image and report it; on failure print the reason to stderr."""
+    try:
+        export_png(tree, png_path)
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return False
+    print(f"PNG written: {png_path}")
+    return True
+
+
+def parse_args(argv: list[str]) -> tuple[str, set[str], str | None] | None:
+    """Split argv into (path, flags, png_path); None on a usage error.
+
+    `--tree-png` must be followed by a path, which is not counted as the source file.
+    """
+    paths: list[str] = []
+    flags: set[str] = set()
+    png_path = None
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "--tree-png":
+            if index + 1 >= len(argv):
+                return None
+            png_path = argv[index + 1]
+            index += 1
+        if arg.startswith("-"):
+            flags.add(arg)
+        else:
+            paths.append(arg)
+        index += 1
     if len(paths) != 1 or not flags <= KNOWN_FLAGS:
         return None
-    return paths[0], flags
+    return paths[0], flags, png_path
 
 
 def main(argv: list[str]) -> int:
@@ -79,7 +125,8 @@ def main(argv: list[str]) -> int:
     if parsed is None:
         print(USAGE, file=sys.stderr)
         return EXIT_USAGE
-    return run(*parsed)
+    path, flags, png_path = parsed
+    return run(path, flags, png_path)
 
 
 if __name__ == "__main__":

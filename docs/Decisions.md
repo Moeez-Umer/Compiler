@@ -236,3 +236,51 @@ Changes to SPEC.md or frozen interfaces must be logged here.
   - (+) The same files can keep working in later phases.
   - (-) They have not been run through a parser or semantic analyzer (not built yet), so their validity beyond
     tokens is unverified until Phases 2 and 5.
+
+## D-017 Node labels and child order in the parse tree
+
+- **Context**: interfaces.md requires `label()` and `children()` on every node but does not say what the label text is.
+- **Decision**: Label = class name plus the identifying data: `Program`, `FunctionDecl int main`, `Param int x`,
+  `VarDecl const int LIMIT`, `Assign total`, `BinaryOp +`, `UnaryOp !`, `Literal 10 (int)`, `Identifier x`, `Call f`;
+  other nodes use the class name. Children are in source order and absent optional parts (no `else`, no `for` init or
+  update, no initializer) are left out, so the position of a child is not fixed. A `Block` as `else_branch` and an
+  `If` as `else_branch` (else-if) both appear directly under the `If`. Node `line`/`col` are those of the first token of
+  the construct; for `BinaryOp` and `UnaryOp` they are those of the operator token. Dataclass field order is the
+  interfaces.md fields first, then `line`, `col` (always passed by keyword in the parser).
+  Semantic annotations (`expr_type`, `tac_name`, `scope_id`) are dataclass fields with `init=False, compare=False`.
+- **Trade-offs**:
+  - (+) The tree text is short and readable; the semantic analyzer will find error positions at the operator.
+  - (-) A reader cannot tell "then" from "else" in the text except by order and depth (a Block after a condition).
+  - (-) Equality of nodes ignores annotations, which is what parser tests want but must be remembered later.
+
+## D-018 Phase 2 reports one syntax error and stops (no recovery yet)
+
+- **Context**: Phase 2 covers valid programs only; panic-mode recovery belongs to Phase 3 (D-003), but
+  interfaces.md says `parse` never raises and the compiler must never crash.
+- **Options considered**:
+  1. Let `ParseError` escape (crashes the CLI on a bad file).
+  2. Catch it once in `parse_program`, report ONE Syntax error, and return the top-level items finished before it.
+- **Decision**: Option 2. Message form: `Expected 'X' but found 'Y'` (`end of file` at EOF, `Expected statement/expression/
+  type/identifier but found ...`). A `RecursionError` from extremely deep nesting is reported as `Program is nested too deeply`.
+  The `ParseError` class and `expect` helper are the ones Phase 3 will extend with synchronization.
+- **Trade-offs**:
+  - (+) No crash on any input; Phase 3 only has to add recovery points.
+  - (-) After the first syntax error nothing else is checked; the partial tree omits the declaration that failed.
+
+## D-019 `--tree`, `--tree-png` and `run()` signature
+
+- **Context**: SPEC section 12 lists `--tree` and `--tree-png PATH`; interfaces.md freezes `run(path, flags) -> int`, but
+  `flags: set[str]` has nowhere to hold the PATH value.
+- **Options considered**:
+  1. Encode the path in the flag string (`--tree-png=out.png`).
+  2. Add an optional keyword parameter `png_path: str | None = None` to `run`.
+- **Decision**: Option 2. Calls `run(path, flags)` keep working; this is a backward-compatible extension, flagged for
+  approval (frozen interface). `parse_args` returns `(path, flags, png_path)`; `--tree-png` consumes the next argument,
+  and a missing PATH is a usage error (exit 2). The parser runs only when `--tree` or `--tree-png` is requested, so
+  Phase 1 `--tokens` runs behave exactly as before. Output order: tokens, `== PARSE TREE ==` (only with `--tree`),
+  `== ERRORS ==`, then `PNG written: PATH`. A missing `dot` binary prints one `error: Graphviz 'dot' program not found...`
+  line to stderr and exits 2. The PNG is also written for a partial tree after a syntax error.
+- **Trade-offs**:
+  - (+) Interface stays source compatible; Phase 7 can fold it into the final CLI.
+  - (-) `run` now differs textually from interfaces.md until the interface doc is updated with approval.
+  - (-) Syntax errors are only visible when a tree flag is given until Phase 7 makes the full pipeline the default.

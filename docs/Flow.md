@@ -2,7 +2,7 @@
 
 Tags: `[PLANNED]` until built, then `[BUILT]`.
 
-## 1. Pipeline diagram [PLANNED; source → lexer → parser → tree output in main is BUILT]
+## 1. Pipeline diagram [PLANNED; source → lexer → parser (with error recovery) → tree output in main is BUILT]
 
 ```mermaid
 flowchart LR
@@ -23,12 +23,12 @@ flowchart LR
 | Stage | Input | Output | Notes |
 |---|---|---|---|
 | lexer | source text, `ErrorCollector` | `list[Token]` | Always ends with `EOF`. Bad input becomes `INVALID` tokens plus a Lexical error. |
-| parser [BUILT, valid programs; recovery is Phase 3] | `list[Token]`, `ErrorCollector` | `Program` tree | Never raises or hangs. Skips `INVALID` tokens silently. Returns best partial tree after syntax errors. |
+| parser [BUILT, with panic-mode recovery, D-021, D-022] | `list[Token]`, `ErrorCollector` | `Program` tree | Never raises or hangs. Skips `INVALID` tokens silently. Reports every syntax error it finds; the partial tree keeps all items and statements that parsed plus the recovered function. |
 | semantic | `Program`, `ErrorCollector` | `SymbolTable`, plus annotations on the tree | Annotations: `expr_type`, `tac_name`, `scope_id`. Pass 1 collects function signatures, pass 2 checks bodies. |
 | tacgen | annotated `Program` | `list[str]` | Precondition: zero errors. Temporaries `t1..`, labels `L1..`, numbered per program. |
 | main | path, flags | exit code | Prints sections in order: tokens, tree, symbol tables, errors, TAC. |
 
-## 3. Error flow [PLANNED]
+## 3. Error flow [PLANNED; the syntax-error recovery inside the parser is BUILT, see 3a]
 
 ```mermaid
 flowchart TD
@@ -46,8 +46,31 @@ flowchart TD
 
 - All errors go through one `ErrorCollector`, in the format `[Kind Error] Line L, Col C: message`.
 - The error section is ordered Lexical, then Syntax, then Semantic, each sorted by line, col.
-- Syntax errors use panic-mode recovery (D-003); lexical errors continue after an `INVALID` token.
+- Syntax errors use panic-mode recovery (D-003, D-022) [BUILT]; lexical errors continue after an `INVALID` token.
 - Exit codes: 0 no errors, 1 any compile error, 2 usage or file error.
+
+## 3a. Parser error recovery [BUILT]
+
+```mermaid
+flowchart TD
+    S["statement or top-level item"] --> P{"parse OK?"}
+    P -->|yes| K["keep node in the tree"]
+    P -->|"no: ParseError"| R["report_error"]
+    R --> D{"offending token right after INVALID,<br/>or same position as last error?"}
+    D -->|yes| Q["not reported (D-020, EOF dedupe)"]
+    D -->|no| W["Syntax error to ErrorCollector"]
+    Q --> Y["synchronize"]
+    W --> Y
+    Y --> G["ensure_progress: consume 1 token if none consumed"]
+    G --> N["next statement or item"]
+    K --> N
+```
+
+- Recovery points: each statement in `parse_block`, each item in `parse_program`, the header in `parse_func_rest`.
+- Statement sync: consume `;`, stop before `}`, `{`, `if while for return const` and type keywords. Top-level sync:
+  consume `;` or a run of `}`, stop before `const` or a type. Both end at EOF.
+- A missing `;` that is clearly forgotten (next token on a later line, a statement keyword, `}` or EOF) is reported and NOT skipped (D-024).
+- A failed statement is dropped; a broken function stays as a `FunctionDecl` (D-021). A stray `else` is reported and its block kept.
 
 ## 4. Module table
 
@@ -76,7 +99,7 @@ characters, anything else INVALID). Every INVALID token also reports a Lexical e
 | `errors.py` | [BUILT] | `CompilerError`, `ErrorCollector` (`report`, `has_errors`, `has_kind`, `all`) | none |
 | `lexer.py` | [BUILT] | `tokenize(source, errors) -> list[Token]` | `tokens`, `errors` |
 | `ast_nodes.py` | [BUILT] | node dataclasses with `label()` and `children()` | none |
-| `parser.py` | [BUILT: valid programs only] | `parse(tokens, errors) -> Program` | `tokens`, `errors`, `ast_nodes` |
+| `parser.py` | [BUILT: panic-mode recovery, partial tree] | `parse(tokens, errors) -> Program` | `tokens`, `errors`, `ast_nodes` |
 | `tree_export.py` | [BUILT] | `tree_to_text`, `tree_to_dot`, `export_png` | `ast_nodes` only |
 | `symbol_table.py` | [PLANNED] | `Symbol`, `SymbolTable` (`enter_scope`, `exit_scope`, `declare`, `lookup`, `lookup_current`, `current_level`, `dump`) | none |
 | `semantic.py` | [PLANNED] | `analyze(tree, errors) -> SymbolTable` | `parser` outputs, `ast_nodes`, `symbol_table`, `errors` |

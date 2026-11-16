@@ -253,7 +253,7 @@ Changes to SPEC.md or frozen interfaces must be logged here.
   - (-) A reader cannot tell "then" from "else" in the text except by order and depth (a Block after a condition).
   - (-) Equality of nodes ignores annotations, which is what parser tests want but must be remembered later.
 
-## D-018 Phase 2 reports one syntax error and stops (no recovery yet)
+## D-018 Phase 2 reports one syntax error and stops (no recovery yet) [SUPERSEDED by D-021 and D-022 in Phase 3]
 
 - **Context**: Phase 2 covers valid programs only; panic-mode recovery belongs to Phase 3 (D-003), but
   interfaces.md says `parse` never raises and the compiler must never crash.
@@ -308,3 +308,124 @@ Changes to SPEC.md or frozen interfaces must be logged here.
     error exposes it on the next run.
   - (-) Relies on the lexer having reported the INVALID token. Tokens built by hand without a lexical error would
     fail silently (cannot happen via `main.py`).
+
+## D-021 Partial tree keeps everything that parsed (supersedes D-018)
+
+- **Context**: D-018 caught the first `ParseError` in `parse_program` and returned only the items finished before it.
+  After one error in `main` the tree showed just `Program`, and nothing after the error was checked.
+- **Options considered**:
+  1. Keep D-018 (stop at the first error).
+  2. Recover but drop every function that contains an error.
+  3. Recover at statement and top-level boundaries; keep every top-level item and statement that parsed, plus the
+     recovered function.
+- **Decision**: Option 3. A failed statement is dropped, the statements around it stay. A function whose header or body
+  failed stays as a `FunctionDecl` (params parsed before the error, or none; body = the statements that parsed, or an
+  empty `Block` when the `{` is missing). A failed top-level variable declaration is dropped. D-018's message format and
+  the `RecursionError` message (`Program is nested too deeply`) are unchanged; the recursion error is now caught per
+  top-level item, so later items are still parsed.
+- **Trade-offs**:
+  - (+) `--tree` shows a useful tree after errors; later errors in the same file are found.
+  - (-) The tree can be incomplete or slightly wrong (dropped statement, empty body). It is for display only: the
+    pipeline stops after parsing when any Syntax error exists (SPEC section 9), so semantic analysis never sees it.
+  - (-) Params parsed before a header error are lost (the list is built inside `parse_params`).
+
+## D-022 Panic-mode recovery design (implements D-003)
+
+- **Context**: SPEC section 9 asks for panic mode: record the error, skip to `;`, `}` or a statement-starting keyword,
+  guarantee forward progress.
+- **Options considered**:
+  1. Pure skip-to-sync with the sync set exactly as in the SPEC.
+  2. Same, plus `{` as a sync token and special handling of a stray `else`.
+  3. Phrase-level repair (insert the missing `;` or `)`).
+- **Decision**: Option 2.
+  - Recovery points: `parse_statement_or_recover` (each statement in a block), `parse_program` (each top-level item),
+    `parse_func_rest` (function header). `ParseError` stays private and never leaves `parse()`.
+  - `synchronize_statement`: consume a `;` and stop after it; stop BEFORE `}`, `{`, `if while for return const` and the
+    type keywords; skip anything else. `synchronize_top_level`: consume `;` or `}`, stop before `const` or a type.
+  - `{` is in the statement sync set so that after `if (a > 0 {` the body is parsed as a block instead of being eaten
+    token by token (which would let its `}` close the enclosing function early). Cost: the `If` node is lost, its body
+    stays as a plain nested `Block`.
+  - Stray `else`: report `Expected statement but found 'else'`, then parse the following `if`/block and keep it, for the
+    same reason (no follow-on errors, no early `}`).
+  - Missing function body (`int f();`): one error, empty `Block` at the error token. A header error suppresses the
+    second `Expected '{'` message.
+  - Forward progress: `ensure_progress` consumes one token if nothing was consumed since the item started; every loop
+    ends at EOF or consumes a token. Unclosed blocks all fail at EOF at the same position; `report_error` ignores a
+    second error at the same line and column, so EOF gives one message.
+  - D-020 stays inside `report_error`, the single place errors are reported, so it holds on every recovery path.
+- **Trade-offs**:
+  - (+) Small, explainable; each recovery method is under 20 lines; one mistake normally gives one message.
+  - (-) A missing `;` also lost the next statement (`x = 1` newline `y = 2;` dropped both): the sync skipped to the `;`.
+    **Updated by D-024**: a clearly forgotten `;` is now inserted instead; the skip stays for other cases.
+  - (-) Follow-on errors are possible after unusual mistakes. Two genuine errors inside one skipped region are reported
+    as one.
+  - (-) Phrase-level repair would keep more of the tree but is not what SPEC section 9 specifies.
+
+## D-023 Known limitation: D-020 hides a real syntax error right after an INVALID token
+
+- **Context**: D-020 suppresses a syntax error whose offending token comes right after a skipped INVALID token, because
+  the parser cannot tell whether that error was caused by the vanished token or is a genuine mistake.
+- **Options considered**: (1) accept and document; (2) suppress only when the expected token could have been the INVALID
+  one (needs per-error knowledge); (3) never suppress.
+- **Decision**: Option 1. Example: `@ else { a = 2; }` reports only the Lexical error; the stray `else` is not reported
+  until the `@` is fixed. Covered by `test_known_limitation_genuine_error_right_after_invalid_is_hidden`.
+- **Trade-offs**:
+  - (+) No misleading syntax error after a lexical error, which is by far the common case.
+  - (-) One genuine error can stay hidden for one run. Recovery itself still runs, so later errors are found.
+
+## D-024 Insert a clearly forgotten `;` instead of skipping (refines D-022)
+
+- **Context**: Observed with `int x = 1` newline `x = x + 2;` newline `return x;`: panic mode reported the error at `x`, then
+  skipped to the next `;`, so the tree lost BOTH `int x = 1` and `x = x + 2`, and a real error inside the second
+  statement would have gone unreported.
+- **Options considered**:
+  1. Keep pure panic mode (D-022 as first written).
+  2. Insert the `;` (report, consume nothing) when the offending token clearly starts something new: it is on a later
+     line than the previous token, or is `}`, EOF, or a statement-start keyword (`if while for return const` or a type).
+     Otherwise skip as before.
+  3. Always insert.
+- **Decision**: Option 2, in one helper `expect_semicolon` (used by declarations, assignments, call statements and
+  `return`; the two `;` inside a `for (...)` header still use `expect`). The error text is unchanged
+  (`Expected ';' but found X`); the statement stays in the tree; the next statement is parsed normally.
+  Forward progress holds: the statement consumed at least one token before the check.
+- **Trade-offs**:
+  - (+) One missing `;` gives one error and loses nothing; errors in the next statement are still found.
+  - (-) A heuristic, not a proof. `int a = 1` newline `)` gives two errors (`;` and the stray `)`); both are genuine.
+  - (-) Same-line junk (`int a = 1 2;`) still takes the skip path and drops the statement.
+  - (-) A phrase-level repair on top of panic mode (D-003 option 3, used in one place only).
+- **Side change (same session)**: `synchronize_top_level` now consumes a whole run of stray `}` as one mistake. Found with
+  5000 nested `{`: after the recursion error the leftover `}` produced thousands of `Expected type but found '}'` lines.
+
+## D-025 Known limitations of the tree after a syntax error
+
+- **Context**: After an error the parser returns a partial tree for display (D-021). It is not complete.
+- **Decision**: Accepted and documented. The tree DROPS or CHANGES the following after an error:
+  1. A failed `if`/`while`/`for` header (e.g. `if (a > 0 {`) loses the `If`/`While`/`For` node; its body block stays as a
+     plain nested `Block`, and an `else` branch of that `if` is reported as a stray `else` (kept as a block, D-022).
+  2. A statement that raised a `ParseError` is dropped (including the part of it that parsed), except for the missing-`;`
+     case (D-024).
+  3. A broken function header loses its parameters (`params` is empty); a missing body gives an empty `Block`.
+  4. A failed top-level variable declaration is dropped.
+  5. A stray `else` and its block are kept as a nested block although they are not valid code.
+  6. A run of tokens skipped by panic mode can hide a second genuine error inside it; follow-on errors are possible.
+  7. Nesting deeper than about 330 levels hits Python's recursion limit: one `Program is nested too deeply` error,
+     the whole top-level item is dropped, and a follow-on error can appear after it (observed with 400 nested `{`).
+  8. A genuine error right after an INVALID token is hidden (D-023).
+- **Trade-offs**: (+) simple parser, explainable in a viva. (-) the tree after an error is for display only; the pipeline
+  never runs semantic analysis on it (SPEC section 9).
+
+## D-026 Root `conftest.py` with a 10-second `SIGALRM` timeout per test
+
+- **Context**: A broken synchronization loop during panic-mode recovery can hang on a test that has no explicit
+  `time_limit`, freezing the entire `pytest` run. Rule 9 forbids adding third-party packages like `pytest-timeout`.
+- **Options considered**:
+  1. Put `with time_limit(...)` manually inside every test across every test file.
+  2. Add a root `conftest.py` with an `autouse=True` fixture that sets `signal.alarm(10)` around each test and raises
+     `TimeoutExceeded`, falling back to a no-op when `signal.SIGALRM` is unavailable (Windows).
+- **Decision**: Option 2 (approved by the user as a one-time scope exception).
+- **Trade-offs**:
+  - (+) Every test automatically fails after 10 seconds instead of hanging `pytest`; uses standard library `signal` only.
+  - (+) Safe on Windows (`if not hasattr(signal, "SIGALRM"): yield; return`).
+  - (-) Adds `conftest.py` at the repository root.
+  - (-) Any test that calls `signal.alarm(...)` itself (such as `time_limit(60)` in the fuzz tests) overrides the
+    10-second alarm for the duration of its `with` block, then restores the handler on exit.

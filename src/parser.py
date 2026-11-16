@@ -4,9 +4,10 @@ One method per grammar rule, named after the rule (`parse_if_stmt` for
 `ifStmt`). Precedence comes from rule layering and left associativity from
 loops. A level with a single operand returns that operand unchanged (D-004).
 
-Phase 2 scope: valid programs. There is no panic-mode recovery yet (that is
-Phase 3, D-003). On the first unexpected token the parser reports ONE Syntax
-error and returns the declarations it finished before that point (D-018).
+Phase 3 adds panic-mode error recovery (D-003, D-022). A grammar mismatch
+raises the private ParseError; it is caught at statement and top-level
+boundaries, reported, and the parser skips to a synchronizing token. The
+returned tree keeps everything that parsed (D-021).
 """
 from src.ast_nodes import (
     Assign, BinaryOp, Block, Call, CallStmt, For, FunctionDecl, Identifier,
@@ -15,6 +16,12 @@ from src.errors import ErrorCollector
 from src.tokens import Token, TokenType
 
 TYPE_KEYWORDS = ("int", "float", "char", "bool")
+# Tokens where statement-level recovery stops without consuming them (SPEC section 9).
+# `{` is included so a body after a broken header is still parsed as a block (D-022).
+STATEMENT_KEYWORDS = ("if", "while", "for", "return", "const") + TYPE_KEYWORDS
+STATEMENT_SYNC = ("}", "{") + STATEMENT_KEYWORDS
+# Top level: a new declaration can only start with `const` or a type.
+TOP_LEVEL_SYNC = ("const",) + TYPE_KEYWORDS
 LITERAL_TYPES = {
     TokenType.INT_LIT: "int",
     TokenType.FLOAT_LIT: "float",
@@ -33,7 +40,7 @@ TERM_OPS = ("*", "/", "%")
 class ParseError(Exception):
     """Internal signal that the next token does not fit the grammar.
 
-    Never escapes parse(): it is caught there and turned into a Syntax error.
+    Never escapes parse(): the recovery points catch it, report it and synchronize.
     """
 
     def __init__(self, line: int, col: int, message: str, after_invalid: bool = False):
@@ -48,7 +55,10 @@ class ParseError(Exception):
 class Parser:
     """Holds the token list and a cursor; one parse_* method per grammar rule."""
 
-    def __init__(self, tokens: list[Token]):
+    def __init__(self, tokens: list[Token], errors: ErrorCollector):
+        self.errors = errors
+        # Position of the last reported syntax error; stops a second report at the same place.
+        self.last_error_pos: tuple[int, int] | None = None
         # INVALID tokens were already reported by the lexer, so skip them silently.
         # `after_invalid` remembers which kept tokens followed a skipped one, so a
         # syntax error caused only by the missing token is not reported twice (D-020).
@@ -117,22 +127,105 @@ class Parser:
             raise self.fail("identifier")
         return self.advance()
 
+    def expect_semicolon(self) -> None:
+        """Consume the `;` that ends a declaration or statement; insert it if clearly forgotten (D-024).
+
+        The `;` counts as forgotten when the offending token is on a later line than the
+        previous token, or starts a statement (a keyword) or closes a block (`}`). The error is
+        reported but nothing is skipped, so the finished statement and the next one stay in the
+        tree. Otherwise the plain `expect` runs and panic mode skips tokens as before.
+        """
+        if self.at(";"):
+            self.advance()
+            return
+        if self.semicolon_looks_forgotten():
+            self.report_error(self.fail("';'"))
+            return
+        raise self.fail("';'")
+
+    def semicolon_looks_forgotten(self) -> bool:
+        """True if the current token begins something new rather than continuing the statement."""
+        token = self.peek()
+        if token.type == TokenType.EOF or self.at("}", *STATEMENT_KEYWORDS):
+            return True
+        previous = self.tokens[self.pos - 1] if self.pos > 0 else token
+        return token.line > previous.line
+
     # ------------------------------------------------- program and top level
 
-    def parse_program(self, errors: ErrorCollector) -> Program:
-        """program -> topLevel* EOF.  Reports one Syntax error and stops at the first problem."""
+    def parse_program(self) -> Program:
+        """program -> topLevel* EOF.  Recovers from each bad item and keeps the good ones (D-021)."""
         items: list[Node] = []
-        try:
-            while self.peek().type != TokenType.EOF:
+        while self.peek().type != TokenType.EOF:
+            start = self.pos
+            try:
                 items.append(self.parse_top_level())
-        except ParseError as error:
-            # The lexer already reported the INVALID token that caused this error (D-020).
-            if not error.after_invalid:
-                errors.report("Syntax", error.line, error.col, error.message)
-        except RecursionError:
-            token = self.peek()
-            errors.report("Syntax", token.line, token.col, "Program is nested too deeply")
+            except ParseError as error:
+                self.report_error(error)
+                self.recover_top_level(start)
+            except RecursionError:
+                token = self.peek()
+                self.report_error(ParseError(token.line, token.col, "Program is nested too deeply"))
+                self.recover_top_level(start)
         return Program(items=items, line=1, col=1)
+
+    # ------------------------------------------------------------- recovery
+
+    def report_error(self, error: ParseError) -> None:
+        """Report one Syntax error unless it is already covered (D-020 or same position)."""
+        # The lexer already reported the INVALID token that caused this error (D-020).
+        if error.after_invalid:
+            return
+        # Nested unclosed blocks all fail at EOF; one message is enough.
+        if self.last_error_pos == (error.line, error.col):
+            return
+        self.last_error_pos = (error.line, error.col)
+        self.errors.report("Syntax", error.line, error.col, error.message)
+
+    def synchronize_statement(self) -> None:
+        """Panic mode inside a block: skip to a `;` (consumed) or a statement boundary (kept)."""
+        while self.peek().type != TokenType.EOF:
+            if self.at(";"):
+                self.advance()
+                return
+            if self.at(*STATEMENT_SYNC):
+                return
+            self.advance()
+
+    def synchronize_top_level(self) -> None:
+        """Panic mode between declarations: skip past `;` or a run of `}`, stop at `const` or a type.
+
+        A run of stray `}` is one mistake, so all of them are consumed together.
+        """
+        while self.peek().type != TokenType.EOF:
+            if self.at(";", "}"):
+                while self.at("}"):
+                    self.advance()
+                if self.at(";"):
+                    self.advance()
+                return
+            if self.at(*TOP_LEVEL_SYNC):
+                return
+            self.advance()
+
+    def recover_statement(self, start: int) -> None:
+        """Synchronize after a failed statement that began at token index `start`."""
+        self.synchronize_statement()
+        self.ensure_progress(start)
+
+    def recover_top_level(self, start: int) -> None:
+        """Synchronize after a failed declaration that began at token index `start`."""
+        self.synchronize_top_level()
+        self.ensure_progress(start)
+
+    def ensure_progress(self, start: int) -> None:
+        """Forward-progress guarantee: if nothing was consumed since `start`, consume one token.
+
+        Without this, a failing token that is also a sync token (such as `}` at top level)
+        would be re-parsed and re-reported forever.
+        """
+        if self.pos == start and self.peek().type != TokenType.EOF:
+            self.advance()
 
     def parse_top_level(self) -> Node:
         """topLevel -> 'const' type ID varRest | type ID ( funcRest | varRest )."""
@@ -152,18 +245,38 @@ class Parser:
         if self.at("="):
             self.advance()
             init = self.parse_expr()
-        self.expect(";")
+        self.expect_semicolon()
         return VarDecl(type_name=type_name, name=name, init=init, is_const=is_const,
                        line=start.line, col=start.col)
 
     def parse_func_rest(self, return_type: str, name: str, start: Token) -> FunctionDecl:
-        """funcRest -> '(' params? ')' block."""
+        """funcRest -> '(' params? ')' block.  A broken header or body still yields a FunctionDecl."""
         self.expect("(")
-        params = [] if self.at(")") else self.parse_params()
-        self.expect(")")
-        body = self.parse_block()
+        params: list[Param] = []
+        header_ok = True
+        try:
+            params = [] if self.at(")") else self.parse_params()
+            self.expect(")")
+        except ParseError as error:
+            self.report_error(error)
+            self.synchronize_statement()   # stops at `{`, so the body can still be parsed
+            header_ok = False
+        body = self.parse_function_body(header_ok)
         return FunctionDecl(return_type=return_type, name=name, params=params, body=body,
                             line=start.line, col=start.col)
+
+    def parse_function_body(self, report_missing: bool) -> Block:
+        """The `block` of funcRest. A missing `{` is reported and gives an empty Block (D-022).
+
+        `report_missing` is False after a header error, so one mistake gives one message.
+        """
+        if self.at("{"):
+            return self.parse_block()
+        token = self.peek()
+        if report_missing:
+            self.report_error(self.fail("'{'"))
+            self.synchronize_statement()   # consumes the `;` of `int f();`
+        return Block(statements=[], line=token.line, col=token.col)
 
     def parse_params(self) -> list[Param]:
         """params -> param ( ',' param )*."""
@@ -189,13 +302,29 @@ class Parser:
     # ------------------------------------------------------------ statements
 
     def parse_block(self) -> Block:
-        """block -> '{' statement* '}'."""
+        """block -> '{' statement* '}'.  Failed statements are skipped, good ones are kept."""
         start = self.expect("{")
         statements = []
-        while not self.at("}"):
-            statements.append(self.parse_statement())
-        self.expect("}")
+        while not self.at("}") and self.peek().type != TokenType.EOF:
+            statement = self.parse_statement_or_recover()
+            if statement is not None:
+                statements.append(statement)
+        if self.at("}"):
+            self.advance()
+        else:
+            # Unclosed block: report once at EOF and keep what parsed.
+            self.report_error(self.fail("'}'"))
         return Block(statements=statements, line=start.line, col=start.col)
+
+    def parse_statement_or_recover(self) -> Node | None:
+        """Recovery point for one statement: on ParseError report, synchronize, return None."""
+        start = self.pos
+        try:
+            return self.parse_statement()
+        except ParseError as error:
+            self.report_error(error)
+            self.recover_statement(start)
+            return None
 
     def parse_statement(self) -> Node:
         """statement -> varDecl | idStmt | ifStmt | whileStmt | forStmt | returnStmt | block.
@@ -216,7 +345,19 @@ class Parser:
             return self.parse_return_stmt()
         if self.at("{"):
             return self.parse_block()
+        if self.at("else"):
+            return self.parse_stray_else()
         raise self.fail("statement")
+
+    def parse_stray_else(self) -> Node:
+        """An `else` with no `if`: report it, then parse its `if` or block so it adds no more errors.
+
+        Skipping token by token would stop at the `}` of the else block and close the
+        enclosing block too early (D-022).
+        """
+        self.report_error(self.fail("statement"))
+        self.advance()
+        return self.parse_if_stmt() if self.at("if") else self.parse_block()
 
     def parse_var_decl(self) -> VarDecl:
         """varDecl -> 'const'? type ID ( '=' expr )? ';'."""
@@ -233,10 +374,10 @@ class Parser:
         name_token = self.expect_identifier()
         if self.at("("):
             call = self.parse_call_rest(name_token)
-            self.expect(";")
+            self.expect_semicolon()
             return CallStmt(call=call, line=name_token.line, col=name_token.col)
         stmt = self.parse_assignment(name_token)
-        self.expect(";")
+        self.expect_semicolon()
         return stmt
 
     def parse_assignment(self, name_token: Token) -> Assign:
@@ -304,7 +445,7 @@ class Parser:
         """returnStmt -> 'return' expr ';'."""
         start = self.expect("return")
         value = self.parse_expr()
-        self.expect(";")
+        self.expect_semicolon()
         return Return(value=value, line=start.line, col=start.col)
 
     def parse_args(self) -> list[Node]:
@@ -404,7 +545,7 @@ class Parser:
 def parse(tokens: list[Token], errors: ErrorCollector) -> Program:
     """Parse a token list into a Program tree (interfaces.md: parser.py).
 
-    Never raises. Reports Syntax errors through `errors` and returns whatever
-    was parsed before the first error.
+    Never raises and always terminates. Reports every Syntax error it can find
+    through `errors` and returns the best partial tree (D-021).
     """
-    return Parser(tokens).parse_program(errors)
+    return Parser(tokens, errors).parse_program()

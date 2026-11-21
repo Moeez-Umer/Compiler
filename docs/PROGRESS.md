@@ -14,10 +14,12 @@ Deadline: Dec 5, 2026. Tick a phase only after the user has verified it.
   - [~] 5b: callee, arity and argument types, return checks, missing return - committed (`f40c71c`, tag `phase-5b`, per `git log`); box left `[~]` until you confirm verification
 - [~] Phase 6: Three-address code generator (Nov 30 to Dec 1) - committed (`ff904c9`, tag `phase-6`, per `git log`); box left `[~]` until you confirm verification
 - [~] Phase 7: CLI integration and output polish (Dec 1 to 2) - committed (`03891e9`, tag `phase-7`, per `git log`); box left `[~]` until you confirm verification
-- [~] Phase 8: Test suite, hardening, clean-clone check (Dec 2 to 3) - built (845 passed; 104 `.sl` test programs; approved `utf-8-sig` in `src/main.py` and 22 docstrings in `src/ast_nodes.py` applied; report assets generated), awaiting your verification and commit
+- [~] Phase 8: Test suite, hardening, clean-clone check (Dec 2 to 3) - committed (`6a4af9a`), tag `phase-8` (per `git log`); Phase 8b (Python 3.10+ version guard in `src/main.py`, `README.md` setup update, `requirements.txt` minimum pins, `Decisions.md` D-047 to D-049) built and awaiting your verification and commit; box left `[~]` until you confirm verification
 - [ ] Phase 9: Report and viva prep (Dec 3 to 4)
 
 ## Open issues
+
+- Phase 8b (D-047, D-048, D-049): added startup `sys.version_info < (3, 10)` guard in `src/main.py` before `from src...` imports (prints one line to `stderr` with the found version and exits with code 2; protects `python src/main.py` only, while `pytest` on Python 3.9 still fails at collection); updated `README.md` to state the Python 3.10+ requirement (developed and tested on 3.12) and warn that macOS's default `python3` may be too old; pinned `graphviz>=0.20` and `pytest>=8` in `requirements.txt`; logged D-047, D-048, and D-049 (`report/assets/*.png` committed and removed from `.gitignore`).
 
 - Phase 8 (D-044): `tests/test_programs.py` and `tests/pipeline_helper.py` run all 104 `.sl` files (`tests/valid`: 11, `tests/invalid`: 84, `tests/golden`: 9) through `tokenize`, `parse`, `analyze`, and `generate` directly. Every existing `.sl` file already had a valid `// EXPECT:` header (0 files lacked a header). Added 4 new edge-case `.sl` files (`valid/edge_comments_only.sl`, `valid/edge_tabs.sl`, `invalid/edge_empty_function_body.sl`, `invalid/edge_empty_function_body_literal.sl`). Because `edge_comments_only.sl` intentionally has 0 code tokens and empty TAC, `test_lexer.py::test_valid_files_have_no_lexical_errors` (`len(tokens) > 10`) and `test_tacgen.py::test_all_valid_programs_generate_nonempty_tac` (`len(tac) > 0`) exclude that one file while `test_programs.py` and `test_edge_cases.py` test it end-to-end.
 - Phase 8 (D-045): Approved 1-line `encoding="utf-8-sig"` change applied in `src/main.py:read_source`; a leading UTF-8 BOM is stripped without shifting line-1 columns while an interior BOM remains a lexical error.
@@ -60,13 +62,14 @@ Deadline: Dec 5, 2026. Tick a phase only after the user has verified it.
 - Phase 5b MUST items: all done in 5b (see D-033 to D-037); `test_5b_not_checked_yet` was deleted.
 - Parser (later, needs approval): store the NAME position on `VarDecl` and `Param` so declaration errors can point at the name instead of the type keyword (D-030).
 - Phase 7: done (parser in the default pipeline, flag handling replaced, no flag means `--all`; D-041).
-- Phase 8: done (`test_programs.py`, `test_edge_cases.py`, `test_fuzz_pipeline.py`, `report/make_test_table.py`, `report/make_assets.py`, `report/code_review.py`, approved `utf-8-sig` in `src/main.py` and 22 one-line docstrings in `src/ast_nodes.py`; D-044 to D-046).
+- Phase 8: done (`test_programs.py`, `test_edge_cases.py`, `test_fuzz_pipeline.py`, `report/make_test_table.py`, `report/make_assets.py`, `report/code_review.py`, approved `utf-8-sig` in `src/main.py` and 22 one-line docstrings in `src/ast_nodes.py`; D-044 to D-046; committed as `6a4af9a`, tag `phase-8`).
+- Phase 8b: done (Python 3.10+ startup guard in `src/main.py`, `README.md` Python 3.10+/macOS `python3` note, `requirements.txt` pins `graphviz>=0.20` and `pytest>=8`, `Decisions.md` D-047 to D-049).
 - Phase 9: term project report and viva preparation using the assets in `report/assets/`.
 
 ## Next step
 
-Verify Phase 8 yourself: `source .venv/bin/activate && pytest -q -rsx`, `python report/make_test_table.py`, `python report/make_assets.py`, `python report/code_review.py`, `git status`.
-Then commit (`phase-8: end-to-end test suite, edge cases, fuzzing, report assets and code review`) and `git tag phase-8`, and run your clean-clone check.
+Verify Phase 8b yourself: `source .venv/bin/activate && pytest -q`, `git diff`, `git status`.
+Then commit (`phase-8b: Python 3.10+ version guard, README setup note and pinned requirements`) and optionally tag `git tag phase-8b`.
 Then Phase 9 (report and viva prep).
 
 ## Hand-traced golden file walk-through (viva reference)

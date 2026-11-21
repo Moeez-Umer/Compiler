@@ -8,6 +8,12 @@ import os
 import sys
 from dataclasses import dataclass
 
+if sys.version_info < (3, 10):
+    found = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    print(f"error: SmartLang requires Python 3.10 or newer (found Python {found})",
+          file=sys.stderr)
+    sys.exit(2)
+
 # `python src/main.py` puts src/ (not the repo root) on sys.path, so add the root
 # BEFORE the `src.` imports below. Harmless when imported by pytest.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

@@ -135,7 +135,7 @@ Stages run independently of the flags (D-041): `run_pipeline` always lexes and p
 The flags only select sections: `--all`, or no section flag, means `--tokens --tree --symbols --tac`; `== ERRORS ==` is always printed (`(none)` when empty).
 Sections come from one small `build_*_section` function each and are built BEFORE anything is printed (D-042); order: TOKENS, PARSE TREE, SYMBOL TABLES, ERRORS, THREE-ADDRESS CODE, one blank line between sections.
 A skipped stage prints `(skipped: <reason>)`. Deep trees: `(skipped: nested too deeply to print)` for the tree section only, exit 1. `--tree-png PATH` runs after printing, reports `wrote PATH` or one `error:` line on stderr, exit 1 (too deep) or 2 (Graphviz, `dot` or file problem) (D-043).
-Exit codes: 0 no errors, 1 any compile error, 2 usage or file error (no file, unreadable or non-UTF-8 file, directory, unknown flag, `--tree-png` without PATH).
+Exit codes: 0 no errors, 1 any compile error, 2 usage or file error (Python < 3.10 at startup, no file, unreadable or non-UTF-8 file, directory, unknown flag, `--tree-png` without PATH; D-048).
 
 | Flags | Clean file | Lexical or syntax error | Semantic error only |
 |---|---|---|---|

@@ -626,6 +626,39 @@ Changes to SPEC.md or frozen interfaces must be logged here.
   - (+) Source-offset mutations keep realistic line/column numbers; `SIGVTALRM` does not cancel `conftest.py`'s outer `SIGALRM`; verified by catching two deliberately injected bugs (one in `tacgen.py`, one in `semantic.py`) before restoring `src/`.
   - (-) Fuzzing checks structural invariants and TAC well-formedness, not semantic oracle equivalence.
 
+## D-047 Python 3.10+ minimum requirement and pinned minimum versions in `requirements.txt`
+
+- **Context**: The codebase uses PEP 585 built-in generic type hints (`list[Token]`, `set[str]`, Python 3.9+) and PEP 604 union syntax (`X | None`, Python 3.10+) per `docs/interfaces.md`. Running a clean clone with Apple's system `/usr/bin/python3` (Python 3.9.6) failed with a raw `TypeError` traceback (`unsupported operand type(s) for |: 'type' and 'NoneType'`), whereas a clean clone on Python 3.12.13 passed all 845 tests. In addition, `requirements.txt` listed unpinned `graphviz` and `pytest`.
+- **Options considered**:
+  1. Rewrite all type annotations across `src/`, `tests/`, and `docs/interfaces.md` to `Optional[...]` / `Union[...]` for Python 3.9 compatibility.
+  2. Require Python 3.10 or newer (developed and tested on Python 3.12), document in `README.md` that macOS's default `python3` may be too old and `python3.12 -m venv .venv` should be used, and pin minimum package versions `graphviz>=0.20` and `pytest>=8` in `requirements.txt`.
+- **Decision**: Option 2 (approved).
+- **Trade-offs**:
+  - (+) Keeps `src/` aligned with frozen `docs/interfaces.md` and SPEC section 3 (`Python 3.12 on macOS`); pins minimum tested major/minor dependency floors (`graphviz>=0.20`, `pytest>=8`).
+  - (-) Cannot run on Python 3.9 or older (mitigated by the startup version guard in `src/main.py`, D-048, and explicit setup instructions in `README.md`).
+
+## D-048 Startup Python version guard in `src/main.py` before `from src...` imports
+
+- **Context**: When a user accidentally invokes `python3 src/main.py ...` with macOS's system Python 3.9.6 outside `.venv`, Python 3.9 parses the file (since `|` is valid bitwise-OR syntax) and then crashes at runtime with a multi-line `TypeError` traceback when evaluating the first `X | None` type hint during `from src...` imports.
+- **Options considered**:
+  1. Let Python 3.9 raise a raw `TypeError` traceback at import time.
+  2. Add an explicit `if sys.version_info < (3, 10):` check at the top of `src/main.py`, immediately after `import sys` and before any `from src...` import or class/function definition using `X | None`, that prints one `error:` line to `stderr` naming the required and found Python versions and exits with code `2`.
+- **Decision**: Option 2 (approved). Exit code `2` matches SPEC section 12's usage/file error category (invoking the CLI with an unsupported interpreter, analogous to a missing Graphviz `dot` binary in D-019/D-043, so `SPEC.md` needs no edit).
+- **Trade-offs**:
+  - (+) `python3 src/main.py` on Python < 3.10 fails cleanly with a single actionable `stderr` message (`error: SmartLang requires Python 3.10 or newer (found Python X.Y.Z)`) and exit code `2` instead of a traceback.
+  - (-) The guard protects `python src/main.py` only; running `pytest` directly under Python 3.9 still fails during test collection because test files import `src.*` modules directly without going through `src/main.py`.
+
+## D-049 Commit `report/assets/*.png` and remove it from `.gitignore`
+
+- **Context**: Originally `.gitignore` ignored `report/assets/*.png` to avoid committing generated binary images during early phases, but the final project report (Phase 9) embeds the parse-tree PNG diagrams from `report/assets/`.
+- **Options considered**:
+  1. Keep `report/assets/*.png` in `.gitignore` and require every clone to run `python report/make_assets.py` (which requires Graphviz `dot`) before viewing or building the report.
+  2. Remove `report/assets/*.png` from `.gitignore` and commit the generated PNG diagrams in `report/assets/`.
+- **Decision**: Option 2 (applied in Phase 8 commit `6a4af9a`). `report/assets/*.png` is now tracked in git and no longer listed in `.gitignore` because the report needs the images.
+- **Trade-offs**:
+  - (+) Report diagrams are present immediately in a fresh clone even without running `report/make_assets.py` or installing Graphviz.
+  - (-) Re-running `python report/make_assets.py` marks the tracked PNGs as modified if Graphviz renders slightly different bytes across machines.
+
 ---
 
 ## Known limitations
@@ -652,5 +685,6 @@ One-line summary of every limitation logged across Phases 1–8:
 - **Unoptimized TAC copies and stacked labels (D-038)**: Every compound expression assignment emits an intermediate temporary copy (`t1 = a + b`, `x = t1`), and `else-if` chains leave adjacent closing labels (`L6:`, `L4:`) unmerged (optimization is out of scope, SPEC section 15).
 - **`--tree-png` path cannot start with `-` (D-043)**: `parse_args` treats any argument starting with `-` after `--tree-png` as a missing path (exit code 2).
 - **BOM stripped only at file start by `read_source` (D-045)**: `read_source` strips a single leading UTF-8 BOM (`utf-8-sig`), whereas `U+FEFF` inside a file (or passed directly to `tokenize` in memory) is reported as `Invalid character '\ufeff'`.
+- **Python 3.10+ version guard covers `src/main.py` only (D-047, D-048)**: Running `python src/main.py` on Python < 3.10 exits cleanly with code 2 and a one-line stderr error, whereas running `pytest` under Python 3.9 still fails at collection when test modules import `src.*` directly.
 - **Semantic checks out of SPEC scope (SPEC section 8)**: Use of uninitialized variables, unreachable statements after `return`, and division/modulo by literal zero are intentionally not checked.
 

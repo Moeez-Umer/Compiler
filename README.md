@@ -3,19 +3,21 @@
 Term project for CS426 Compiler Construction (Information Technology University).
 It is the front-end of a compiler for **SmartLang**, a simplified imperative language: a lexical analyzer,
 a recursive descent parser, a semantic analyzer and a three-address-code (TAC) generator.
-Everything is hand-written Python 3.12. Only the standard library, `graphviz` and `pytest` are used.
+Everything is hand-written Python (requires Python 3.10 or newer; developed and tested on Python 3.12). Only the standard library, `graphviz` and `pytest` are used.
 
 Design documents live in `docs/`: `SPEC.md` (language and compiler rules), `interfaces.md` (module contracts),
 `Decisions.md` (design choices), `Flow.md` (pipeline), `PROGRESS.md` (phase checklist).
 
 ## Setup (macOS)
 
+SmartLang requires **Python 3.10 or newer** (developed and tested on Python 3.12). Note that macOS's default `python3` (`/usr/bin/python3`, often Python 3.9.6) may be too old, so create the virtual environment with `python3.12`:
+
 ```bash
 brew install graphviz            # provides the `dot` binary (needed for --tree-png)
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python --version                 # should print Python 3.12.x
+python --version                 # should print Python 3.12.x (3.10+ required)
 ```
 
 ## Run the tests
@@ -52,7 +54,7 @@ was skipped prints one line, for example `(skipped: lexical or syntax errors)`. 
 |---|---|
 | 0 | no errors |
 | 1 | any lexical, syntax or semantic error (also a tree too deep to print or draw) |
-| 2 | usage or file error (no file, unreadable or non-UTF-8 file, directory, unknown flag, `--tree-png` without a PATH, Graphviz problem); one line on stderr |
+| 2 | usage or file error (Python older than 3.10, no file, unreadable or non-UTF-8 file, directory, unknown flag, `--tree-png` without a PATH, Graphviz problem); one line on stderr |
 
 ## Samples
 

@@ -494,3 +494,32 @@ Changes to SPEC.md or frozen interfaces must be logged here.
 - **Decision**: `type_binary` walks the left spine with a loop (2000-term chains work). Right-nested depth (900 unary minus signs, accepted by the parser) still recurses, so `analyze` catches `RecursionError` and reports one `Program is nested too deeply to analyze` Semantic error instead of crashing (SPEC section 9).
 - **Trade-offs**: (-) after that error the symbol table can be incomplete. Tests: `test_long_operator_chain_does_not_crash`, `test_extreme_nesting_is_an_error_not_a_crash`.
 
+## D-033 Convention: "start of declaration" for declaration errors
+
+- **Context**: D-030 explained why Phase 5a reports declaration errors at the declaration's first token. It is now the general rule.
+- **Decision**: errors about a declaration (initializer mismatch, const without initializer, redeclaration, duplicate function) are reported at the START of the declaration (`int`, `const`, or the function's return type), not at the name. Errors about an expression are reported at the expression node (operator token for `a + b`, own token for identifiers, literals and calls); assignment statements at the target name; `return` errors at the `return` keyword; call errors on the callee at the call name; argument errors at the argument expression; missing return at the closing `}`.
+- **Trade-offs**: (-) declaration errors do not point at the name; the later parser change (name position on `VarDecl`/`Param`) would improve it.
+
+## D-034 `Block.end_line` / `Block.end_col` (approved parser change)
+
+- **Context**: SPEC section 8 wants "missing return" at the function's closing brace line, and `Block` stored only the `{` position.
+- **Options considered**: (1) report at the function header and log a deviation; (2) store the `}` position in `Block`.
+- **Decision** (approved): `Block` gets `end_line: int = 0` and `end_col: int = 0` with `compare=False`; `parse_block` fills them from the `}` token (the EOF token for an unclosed block). A Block built elsewhere keeps 0, and the analyzer then falls back to the function header. `docs/interfaces.md` lists the fields. `parse_function_body`'s empty Block (header error) keeps 0; syntax errors skip semantic analysis anyway.
+- **Trade-offs**: (+) 3 added lines in `ast_nodes.py`, a few in `parser.py`; the full suite stayed at 479 passed right after the change, so `test_parser.py` and `test_syntax_errors.py` needed no edits. (-) `tree_export` does not show the fields (not needed).
+
+## D-035 Missing return is strict
+
+- **Context**: SPEC section 8: "the last statement of a function body (top level of the body) must be a `return`".
+- **Decision**: only a final top-level `Return` satisfies it. Pinned (tests and `semantic_missing_return_*.sl`): an if/else where both branches return, a trailing bare block `{ return 1; }`, a trailing `while`/`for` containing `return`, and a trailing call all report `Missing return at end of function 'f'`. A `return` in the middle of the body does not count. An empty body reports it too.
+- **Trade-offs**: (-) rejects some programs that are fine in C-like languages (if/else with returns in both branches); users add a final `return`. (+) simple and exactly the SPEC wording. Flow analysis is out of scope (SPEC section 15).
+
+## D-036 Function rule messages and positions (Phase 5b)
+
+- **Decision**: `Call to undeclared function 'f'` (5a), `Cannot call 'x': it is a variable, not a function` (call name; type `error`), `Function 'f' expects N argument(s), found M` (call name), `Argument K of 'f': cannot pass V to T parameter 'p'` (the argument expression), `Cannot return V from function 'f' returning T` (the `return` keyword), `Missing return at end of function 'f'` (closing brace). Arguments are always typed first. After an arity error the per-argument type check is skipped (pairing is meaningless). A call with bad arguments keeps the function's return type (no cascade); an `error`-typed argument or return value is silent. A local that shadows a function name makes `f(...)` a call of a variable.
+- **Trade-offs**: (-) after an arity error, a wrong argument type is not reported until the arity is fixed. Tests: `tests/test_semantic_functions.py` and `tests/invalid/semantic_call_*.sl`, `semantic_return_*.sl`, `semantic_missing_return_*.sl`, `semantic_function_errors.sl`.
+
+## D-037 RecursionError handler in `main.py` and the 3000-term PNG exit 2
+
+- **Context**: with a 3000-term `1+1+...` chain, `--tree` crashed with a traceback (recursive `tree_to_text`). `--tree-png` exited 2: `RecursionError` is a subclass of `RuntimeError`, so `write_png` caught it as a Graphviz failure, printed the terse `error: maximum recursion depth exceeded` and returned the usage exit code 2 (the message was on stderr, so not silent, but unclear and with the wrong code). 800 terms work for both.
+- **Decision** (approved: `main.py` only, `tree_export.py` untouched): `run` wraps `run_stages` in `try/except RecursionError`: one stderr line `error: program is nested too deeply to process (recursion limit exceeded)` and exit 1. `write_png` re-raises `RecursionError` before its `RuntimeError` branch. Exit 2 stays for usage and file errors.
+- **Trade-offs**: (-) output already printed (tokens, errors section) stays; with `--tree-png` the `== ERRORS == (none)` section appears before the failure. A real fix would make `tree_export` iterative (needs approval). Tests: `test_cli_deep_chain_tree_gives_one_line_error`, `test_cli_deep_chain_tree_png_gives_one_line_error`, `test_cli_missing_file_is_still_exit_2`, plus 5a carry-forward tests `test_cli_lexical_errors_only_skip_semantic_stage` and `test_cli_symbols_after_nested_too_deeply`.

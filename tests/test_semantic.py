@@ -1,7 +1,7 @@
 """Phase 5a tests: scopes, declarations and expression typing (SPEC section 8).
 
-Call arity, argument types, return checks and missing return are Phase 5b and are NOT tested here,
-except `test_5b_not_checked_yet`, which pins the current behaviour.
+Function rules (arity, argument types, return, missing return) are in `test_semantic_functions.py`;
+the `tests/invalid/semantic_*.sl` files of both phases are run here.
 """
 import re
 import shutil
@@ -47,7 +47,10 @@ def type_of(expr: str):
     """Return (expr_type of `return EXPR;`, messages) inside a function with i, f, c, b declared."""
     tree, _, errors = analyze_source(f"int main() {{\n{PRELUDE}    return {expr};\n}}\n")
     ret = tree.items[0].body.statements[-1]
-    return ret.value.expr_type, [m for _, _, m in semantic(errors)]
+    # `main` returns int, so a float or bool probe also gets a Phase 5b return error; it is not what
+    # these typing tests are about, so it is filtered out here (return checks: test_semantic_functions.py).
+    messages = [m for _, _, m in semantic(errors) if not m.startswith("Cannot return ")]
+    return ret.value.expr_type, messages
 
 
 # ------------------------------------------------------------ assignability (SPEC table)
@@ -314,13 +317,6 @@ def test_call_has_return_type():
     assert tree.items[1].body.statements[0].init.expr_type == "float"
 
 
-def test_5b_not_checked_yet():
-    # Phase 5b MUST replace this test: arity, argument types and return types will become errors.
-    source = ("int f(int a) {\n    return 1.5;\n}\nint main() {\n    int x = f(1, 2, true);\n"
-              "    x = 1;\n    return x(3);\n}\n")
-    assert semantic(analyze_source(source)[2]) == []
-
-
 def test_long_operator_chain_does_not_crash():
     """2000 chained `+` (a deep left-nested tree) is analyzed without hitting the recursion limit."""
     source = "int main() {\n    return " + "1 + " * 2000 + "1;\n}\n"
@@ -474,3 +470,56 @@ def test_cli_without_parser_flags_skips_semantics(tmp_path, capsys):
     """Only --tokens: the parser (and so the semantic stage) does not run yet (D-019; Phase 7 changes this)."""
     code, out = run_cli(tmp_path, capsys, TYPE_ERROR, ["--tokens"])
     assert code == 0 and "Semantic" not in out
+
+
+# ------------------------------------------------------------ Phase 5b carry-forward (CLI robustness)
+
+def run_cli_err(tmp_path, capsys, source, flags, png=None):
+    """Like run_cli but returns (exit code, stdout, stderr)."""
+    path = tmp_path / "prog.sl"
+    path.write_text(source, encoding="utf-8")
+    code = run(str(path), set(flags), png)
+    captured = capsys.readouterr()
+    return code, captured.out, captured.err
+
+
+def test_cli_lexical_errors_only_skip_semantic_stage(tmp_path, capsys):
+    """A file with ONLY a lexical error: the undeclared `ghost` is not reported, --symbols says skipped."""
+    source = "int main() {\n    int y = ghost;\n    int x = 1 @;\n    return 0;\n}\n"
+    code, out, _ = run_cli_err(tmp_path, capsys, source, ["--tree", "--symbols"])
+    errors_part = out.split("== ERRORS ==")[1]
+    assert "[Lexical Error]" in errors_part and "[Syntax Error]" not in errors_part
+    assert "Semantic" not in out and "ghost" not in errors_part
+    assert "(skipped: lexical or syntax errors)" in out and code == 1
+
+
+def test_cli_symbols_after_nested_too_deeply(tmp_path, capsys):
+    """900 unary minus signs: one `nested too deeply` error, and --symbols still prints without a crash."""
+    source = "int main() {\n    return " + "-" * 900 + "1;\n}\n"
+    code, out, err = run_cli_err(tmp_path, capsys, source, ["--symbols"])
+    assert code == 1 and err == ""
+    assert "== SYMBOL TABLES ==" in out and "Scope 0 (global)" in out
+    assert out.count("Program is nested too deeply to analyze") == 1
+
+
+DEEP_CHAIN = "int main() {\n    return " + "1 + " * 3000 + "1;\n}\n"
+
+
+def test_cli_deep_chain_tree_gives_one_line_error(tmp_path, capsys):
+    """3000-term chain: tree_to_text hits the recursion limit; main prints ONE stderr line, exit 1 (never 2)."""
+    code, _, err = run_cli_err(tmp_path, capsys, DEEP_CHAIN, ["--tree"])
+    assert code == 1
+    assert err.count("\n") == 1 and err.startswith("error: ") and "Traceback" not in err
+
+
+@pytest.mark.skipif(shutil.which("dot") is None, reason="graphviz dot binary not installed")
+def test_cli_deep_chain_tree_png_gives_one_line_error(tmp_path, capsys):
+    """Same for --tree-png (was exit 2 with a terse 'maximum recursion depth exceeded')."""
+    code, _, err = run_cli_err(tmp_path, capsys, DEEP_CHAIN, ["--tree-png"], str(tmp_path / "t.png"))
+    assert code == 1
+    assert err.count("\n") == 1 and err.startswith("error: ") and "too deeply" in err
+
+
+def test_cli_missing_file_is_still_exit_2(tmp_path, capsys):
+    """Exit 2 stays reserved for usage and file errors."""
+    assert run(str(tmp_path / "nope.sl"), {"--tree"}) == 2

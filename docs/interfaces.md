@@ -53,7 +53,7 @@ Program(items: list[FunctionDecl | VarDecl])
 FunctionDecl(return_type: str, name: str, params: list[Param], body: Block)
 Param(type_name: str, name: str)
 VarDecl(type_name: str, name: str, init: Expr | None, is_const: bool)
-Block(statements: list[Stmt])
+Block(statements: list[Stmt], end_line: int = 0, end_col: int = 0)   # end_* = position of the closing `}`, 0 = unknown (D-034); not part of equality
 Assign(name: str, value: Expr)
 If(condition: Expr, then_block: Block, else_branch: Block | If | None)
 While(condition: Expr, body: Block)

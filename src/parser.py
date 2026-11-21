@@ -309,12 +309,14 @@ class Parser:
             statement = self.parse_statement_or_recover()
             if statement is not None:
                 statements.append(statement)
+        end = self.peek()   # the `}` (or EOF when the block is unclosed): used for "missing return"
         if self.at("}"):
             self.advance()
         else:
             # Unclosed block: report once at EOF and keep what parsed.
             self.report_error(self.fail("'}'"))
-        return Block(statements=statements, line=start.line, col=start.col)
+        return Block(statements=statements, line=start.line, col=start.col,
+                     end_line=end.line, end_col=end.col)
 
     def parse_statement_or_recover(self) -> Node | None:
         """Recovery point for one statement: on ParseError report, synchronize, return None."""

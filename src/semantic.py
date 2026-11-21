@@ -1,7 +1,7 @@
-"""Semantic analyzer, part 1 (SPEC section 8, interfaces.md: semantic.py).
+"""Semantic analyzer (SPEC section 8, interfaces.md: semantic.py).
 
-Phase 5a covers scopes, declarations and expression typing. Call arity, argument types,
-return checks, missing return and calling a variable belong to Phase 5b and are NOT done here.
+Phase 5a: scopes, declarations and expression typing.
+Phase 5b: function rules (callee, arity, argument types, return type, missing return).
 """
 import re
 
@@ -45,6 +45,8 @@ class Analyzer:
         self.table = SymbolTable()
         self.used_names: set[str] = set()
         self.name_counts: dict[str, int] = {}
+        # The function whose body is being checked (set by check_function, restored afterwards).
+        self.current_function: FunctionDecl | None = None
 
     # ------------------------------------------------------------------ helpers
 
@@ -93,12 +95,29 @@ class Analyzer:
 
     def check_function(self, fn: FunctionDecl) -> None:
         """One function scope shared by the parameters and the body's top level (SPEC section 8)."""
+        outer_function = self.current_function
+        self.current_function = fn
         fn.scope_id = self.table.enter_scope(f"function {fn.name}")
         fn.body.scope_id = fn.scope_id
         for param in fn.params:
             self.declare_variable(param, param.type_name, "param")
         self.check_statements(fn.body.statements)
+        self.check_missing_return(fn)
         self.table.exit_scope()
+        self.current_function = outer_function
+
+    def check_missing_return(self, fn: FunctionDecl) -> None:
+        """SPEC section 8: the LAST top-level statement of a body must be a `return`.
+
+        Strict on purpose (D-035): an if/else whose branches both return still counts as missing.
+        Reported at the closing brace; a Block without a known end (end_line 0) falls back to the header.
+        """
+        statements = fn.body.statements
+        if statements and isinstance(statements[-1], Return):
+            return
+        known = fn.body.end_line > 0
+        line, col = (fn.body.end_line, fn.body.end_col) if known else (fn.line, fn.col)
+        self.errors.report("Semantic", line, col, f"Missing return at end of function '{fn.name}'")
 
     def check_statements(self, statements: list[Node]) -> None:
         """Check each statement of a block in order."""
@@ -125,11 +144,18 @@ class Analyzer:
         elif isinstance(stmt, For):
             self.check_for(stmt)
         elif isinstance(stmt, Return):
-            self.type_expr(stmt.value)   # Phase 5a types the expression only; 5b checks it
+            self.check_return(stmt)
         elif isinstance(stmt, CallStmt):
             self.type_expr(stmt.call)
         elif isinstance(stmt, Block):
             self.check_block(stmt)
+
+    def check_return(self, stmt: Return) -> None:
+        """returnStmt: the value must be assignable to the enclosing function's return type (SPEC section 8)."""
+        value_type = self.type_expr(stmt.value)
+        fn = self.current_function
+        if fn is not None and not is_assignable(value_type, fn.return_type):
+            self.report(stmt, f"Cannot return {value_type} from function '{fn.name}' returning {fn.return_type}")
 
     def check_if(self, stmt: If) -> None:
         """ifStmt: bool condition, then block, and an else block or a nested else-if."""
@@ -232,18 +258,34 @@ class Analyzer:
         return symbol.type_name
 
     def type_call(self, node: Call) -> str:
-        """Phase 5a call rule: type every argument, then give the call the function's return type.
+        """Call rule: the callee must be a function, arity and argument types must match (SPEC section 8).
 
-        Arity and argument types are NOT checked (Phase 5b). A name that is not a function
-        (a variable being called) is also 5b: it is silent here and the call has type `error`.
+        Every argument is typed first so errors inside arguments are always reported. A call to a
+        non-function has type `error`; a call with bad arguments still has the function's return type.
         """
-        for argument in node.args:
-            self.type_expr(argument)
+        argument_types = [self.type_expr(argument) for argument in node.args]
         symbol = self.table.lookup(node.name)
         if symbol is None:
             self.report(node, f"Call to undeclared function '{node.name}'")
             return ERROR
-        return symbol.type_name if symbol.kind == "func" else ERROR
+        if symbol.kind != "func":
+            self.report(node, f"Cannot call '{node.name}': it is a variable, not a function")
+            return ERROR
+        self.check_arguments(node, symbol, argument_types)
+        return symbol.type_name
+
+    def check_arguments(self, node: Call, symbol: Symbol, argument_types: list[str]) -> None:
+        """Arity first; only when the count is right is each argument compared with its parameter."""
+        expected = len(symbol.params)
+        if len(node.args) != expected:
+            noun = "argument" if expected == 1 else "arguments"
+            self.report(node, f"Function '{node.name}' expects {expected} {noun}, found {len(node.args)}")
+            return
+        for index, (argument, found) in enumerate(zip(node.args, argument_types), start=1):
+            param_type, param_name = symbol.params[index - 1]
+            if not is_assignable(found, param_type):
+                self.report(argument, f"Argument {index} of '{node.name}': "
+                                      f"cannot pass {found} to {param_type} parameter '{param_name}'")
 
     def type_unary(self, node: UnaryOp) -> str:
         """unary: `-` needs a numeric operand, `!` needs a bool."""

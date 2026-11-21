@@ -61,6 +61,9 @@ class Block(Node):
     """Grammar rule `block`: `{ statement* }`."""
 
     statements: list[Node]
+    # Position of the closing `}` (D-034); 0 means unknown. Not compared, so tree tests stay structural.
+    end_line: int = field(default=0, compare=False)
+    end_col: int = field(default=0, compare=False)
     scope_id: int | None = annotation()
 
     def children(self) -> list[Node]:

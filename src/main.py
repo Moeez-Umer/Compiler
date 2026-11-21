@@ -1,6 +1,6 @@
 """SmartLang compiler command line (SPEC section 12, interfaces.md: main.py).
 
-Phase 5a: --tokens, --tree / --tree-png and --symbols exist. Later phases add one stage each (D-007).
+Phase 5b: --tokens, --tree / --tree-png and --symbols exist. Later phases add one stage each (D-007).
 This is the only module that prints.
 """
 import os
@@ -56,6 +56,17 @@ def run(path: str, flags: set[str], png_path: str | None = None) -> int:
     source = read_source(path)
     if source is None:
         return EXIT_USAGE
+    try:
+        return run_stages(source, flags, png_path)
+    except RecursionError:
+        # SPEC section 9: never crash. Tree printing, drawing and the analyzer are recursive, so an
+        # absurdly deep program ends here with one line on stderr (exit 1: a compile failure, not usage).
+        print("error: program is nested too deeply to process (recursion limit exceeded)", file=sys.stderr)
+        return EXIT_COMPILE_ERROR
+
+
+def run_stages(source: str, flags: set[str], png_path: str | None) -> int:
+    """Lex, parse, analyze and print the requested sections; may raise RecursionError (see `run`)."""
     errors = ErrorCollector()
     tokens = tokenize(source, errors)
     print("== TOKENS ==")
@@ -109,6 +120,8 @@ def write_png(tree, png_path: str | None) -> bool:
     """Write the tree image and report it; on failure print the reason to stderr."""
     try:
         export_png(tree, png_path)
+    except RecursionError:
+        raise   # a RuntimeError subclass: let `run` give the clear "nested too deeply" message and exit 1
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return False

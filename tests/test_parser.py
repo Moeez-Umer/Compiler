@@ -9,7 +9,6 @@ from src.ast_nodes import (
     If, Literal, Node, Param, Program, Return, UnaryOp, VarDecl, While)
 from src.errors import ErrorCollector
 from src.lexer import tokenize
-from src.main import run
 from src.parser import parse
 from src.tree_export import export_png, tree_to_dot, tree_to_text
 
@@ -488,48 +487,6 @@ def test_garbage_never_crashes(source):
     assert isinstance(tree, Program)
 
 
-# ------------------------------------------------------------------ CLI
-
-def test_cli_tree_prints_section(tmp_path, capsys):
-    program = tmp_path / "p.sl"
-    program.write_text("int main() { return 1 + 2 * 3; }\n", encoding="utf-8")
-    code = run(str(program), {"--tree"})
-    out = capsys.readouterr().out
-    assert code == 0
-    assert "== PARSE TREE ==" in out
-    assert "BinaryOp +" in out and "BinaryOp *" in out
-    assert out.index("== TOKENS ==") < out.index("== PARSE TREE ==") < out.index("== ERRORS ==")
-
-
-def test_cli_tree_with_syntax_error_exit_code(tmp_path, capsys):
-    program = tmp_path / "bad.sl"
-    program.write_text("int main() { int x = 1 }\n", encoding="utf-8")
-    code = run(str(program), {"--tree"})
-    out = capsys.readouterr().out
-    assert code == 1
-    assert "[Syntax Error] Line 1" in out
-
-
-@pytest.mark.skipif(shutil.which("dot") is None, reason="graphviz `dot` not installed")
-def test_cli_tree_png_writes_file(tmp_path, capsys):
-    program = tmp_path / "p.sl"
-    program.write_text("int main() { return 1; }\n", encoding="utf-8")
-    png = tmp_path / "out.png"
-    code = run(str(program), {"--tree-png"}, png_path=str(png))
-    assert code == 0 and png.exists() and png.stat().st_size > 0
-    assert str(png) in capsys.readouterr().out
-
-
-def test_cli_tree_png_missing_dot_gives_clear_message(tmp_path, capsys, monkeypatch):
-    monkeypatch.setattr("src.tree_export.shutil.which", lambda name: None)
-    program = tmp_path / "p.sl"
-    program.write_text("int main() { return 1; }\n", encoding="utf-8")
-    code = run(str(program), {"--tree-png"}, png_path=str(tmp_path / "o.png"))
-    captured = capsys.readouterr()
-    assert code == 2
-    assert "dot" in captured.err and "graphviz" in captured.err.lower()
-
-
 # ------------------------------------- D-020: INVALID tokens and follow-on errors
 
 def kinds_and_lines(errors: ErrorCollector) -> list[tuple[str, int]]:
@@ -568,10 +525,3 @@ def test_valid_program_with_invalid_token_keeps_earlier_items():
     tree, errors = parse_source("int a = 1;\nint b = 9abc;\n")
     assert [i.name for i in tree.items] == ["a"]
     assert kinds_and_lines(errors) == [("Lexical", 2)]
-
-
-def test_cli_invalid_lexical_sample_has_no_follow_on_syntax_error(capsys):
-    code = run("samples/invalid_lexical.sl", {"--tree"})
-    out = capsys.readouterr().out
-    assert code == 1
-    assert "[Syntax Error]" not in out

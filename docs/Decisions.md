@@ -567,3 +567,22 @@ Changes to SPEC.md or frozen interfaces must be logged here.
 - **Trade-offs**:
   - (+) Left-associative expression chains of thousands of terms use `O(1)` Python call-stack depth in `tacgen.py`.
   - (-) Deeply right-nested expressions (e.g. 900 stacked unary `-` operators) remain recursive; `semantic.py` catches `RecursionError` and reports `Program is nested too deeply to analyze`, causing `--tac` to print `(skipped: compilation errors)` and exit 1.
+
+
+## D-041 Phase 7 pipeline policy: parser and semantic stage no longer depend on the flags
+
+- **Context**: Until Phase 6 the parser ran only for tree-related flags (D-019) and the semantic stage only when the parser ran (D-031), so `--tokens` alone never showed a syntax or semantic error. SPEC section 9 says the lexer and parser always run.
+- **Decision**: `run_pipeline` always runs the lexer and the parser; semantic analysis runs only when there are no Lexical and no Syntax errors; TAC only when there are no errors at all. The flags choose only what is PRINTED. A section whose stage was skipped prints one line: `(skipped: lexical or syntax errors)` for the symbol tables, `(skipped: compilation errors)` for TAC. `--all`, or no section flag (`--tokens --tree --symbols --tac`), prints everything except the PNG; `--tree-png PATH` alone therefore also prints all sections. `== ERRORS ==` is always printed and keeps `(none)` as its empty text. This supersedes the "parser only for tree flags" part of D-019 and the "with only `--tokens`" sentence of D-031 and the Phase 1 rule of D-015 (tokens always printed): `== TOKENS ==` is now printed only when requested.
+- **Trade-offs**: (+) one rule, the same for every flag; exit code does not depend on flags (a semantic error with `--tokens` is exit 1). (-) `--tokens` alone now costs a full compile (irrelevant at this size). (-) Tests that relied on the old gating were updated (list in PROGRESS.md).
+
+## D-042 Build every section first, print afterwards, one blank line between sections
+
+- **Context**: Stages printed as they went, so a failure in the middle (D-037: RecursionError while printing the tree) could leave a half-printed output.
+- **Decision**: `build_sections` returns the text of every requested section in the fixed order (tokens, tree, symbols, errors, TAC); `run` prints them once, joined by exactly one blank line. Each `build_*_section` is one small function. If `tree_to_text` raises `RecursionError` (about 3000-term chains), only that section becomes `(skipped: nested too deeply to print)`, the others still print, and the exit code is 1. This resolves the D-037 caveat (no more stderr-only message for `--tree`). A `RecursionError` anywhere else in the pipeline (safety net) prints nothing on stdout, one stderr line, exit 1.
+- **Trade-offs**: (+) never a misleading half output; deep nesting no longer hides errors or TAC. (-) the whole output is held in memory before printing (small). (-) `tree_export` is still recursive: a 3000-deep tree cannot be printed or drawn (limitation kept, `tree_export.py` out of scope).
+
+## D-043 `--tree-png` reports on stderr and fails consistently
+
+- **Context**: In Phase 2 `--tree-png` printed `PNG written: PATH` to stdout, so stdout differed with and without the flag; failures differed (D-019 exit 2, D-037 exit 1) and could stop the output.
+- **Decision** (approved by the user): the PNG is written AFTER the sections are printed. Success prints one line `wrote <path>` to STDERR, so stdout is identical with and without `--tree-png`. A failure prints one line `error: ...` to stderr and never hides a section: exit 1 when the tree is too deep to draw (`RecursionError`), exit 2 for a Graphviz, `dot` or file problem. The final code is the larger of the compile code and the PNG code (a clean file with a missing `dot` gives 2; a file with errors and a missing `dot` also gives 2). `--tree-png` without a PATH, or followed by another flag, is a usage error (exit 2). Messages are collapsed to one line.
+- **Trade-offs**: (+) stdout can be diffed or piped without caring about the PNG. (-) the "wrote" confirmation is on stderr, easy to miss in a terminal that merges nothing but still shows both; (-) a PATH that starts with `-` cannot be used.

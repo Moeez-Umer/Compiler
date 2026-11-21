@@ -4,7 +4,6 @@ Function rules (arity, argument types, return, missing return) are in `test_sema
 the `tests/invalid/semantic_*.sl` files of both phases are run here.
 """
 import re
-import shutil
 from pathlib import Path
 
 import pytest
@@ -12,7 +11,6 @@ import pytest
 from src.ast_nodes import Call, For, FunctionDecl
 from src.errors import ErrorCollector
 from src.lexer import tokenize
-from src.main import run
 from src.parser import parse
 from src.semantic import analyze
 
@@ -410,116 +408,3 @@ def test_invalid_files_report_expected_errors(path):
         assert match is not None, f"{path.name}: no error at line {line} containing {fragment!r}; got {remaining}"
         remaining.remove(match)
     assert remaining == [], f"{path.name}: unexpected extra errors {remaining}"
-
-
-# ------------------------------------------------------------------------------ CLI
-
-TYPE_ERROR = "int main() {\n    int x = 2.5;\n    return x;\n}\n"
-SYNTAX_PLUS_TYPE = "int main() {\n    int x = 2.5;\n    int y = 1\n    return x;\n}\n"
-GOOD = "int main() {\n    int x = 2;\n    return x;\n}\n"
-SPEC_ERROR_LINE = "[Semantic Error] Line 2, Col 5: Cannot assign float to int variable 'x'"
-
-
-def run_cli(tmp_path, capsys, source, flags):
-    """Write `source`, run the CLI, return (exit code, stdout)."""
-    path = tmp_path / "prog.sl"
-    path.write_text(source, encoding="utf-8")
-    code = run(str(path), set(flags))
-    return code, capsys.readouterr().out
-
-
-@pytest.mark.parametrize("flags", [["--tree"], ["--symbols"], ["--tree", "--symbols"]])
-def test_cli_semantic_error_only(tmp_path, capsys, flags):
-    """A type error shows under == ERRORS == and gives exit 1; --symbols still prints the tables."""
-    code, out = run_cli(tmp_path, capsys, TYPE_ERROR, flags)
-    assert code == 1
-    assert SPEC_ERROR_LINE in out.split("== ERRORS ==")[1]
-    if "--symbols" in flags:
-        assert "== SYMBOL TABLES ==" in out and "Scope 1 (function main)" in out
-        assert out.index("== SYMBOL TABLES ==") < out.index("== ERRORS ==")
-
-
-@pytest.mark.skipif(shutil.which("dot") is None, reason="graphviz dot binary not installed")
-def test_cli_semantic_error_with_tree_png(tmp_path, capsys):
-    """--tree-png also runs the semantic stage."""
-    path = tmp_path / "prog.sl"
-    path.write_text(TYPE_ERROR, encoding="utf-8")
-    code = run(str(path), {"--tree-png"}, str(tmp_path / "t.png"))
-    assert code == 1 and SPEC_ERROR_LINE in capsys.readouterr().out
-
-
-@pytest.mark.parametrize("flags", [["--tree"], ["--symbols"]])
-def test_cli_syntax_error_hides_type_error(tmp_path, capsys, flags):
-    """Syntax error plus type error: only the syntax error is reported; --symbols says the stage was skipped."""
-    code, out = run_cli(tmp_path, capsys, SYNTAX_PLUS_TYPE, flags)
-    assert code == 1
-    errors_section = out.split("== ERRORS ==")[1]
-    assert "[Syntax Error]" in errors_section and "[Semantic Error]" not in errors_section
-    if "--symbols" in flags:
-        symbols = out.split("== SYMBOL TABLES ==")[1].split("== ERRORS ==")[0]
-        assert symbols.strip() == "(skipped: lexical or syntax errors)"
-
-
-def test_cli_valid_file(tmp_path, capsys):
-    """A valid file exits 0, prints the tables and `(none)` under errors."""
-    code, out = run_cli(tmp_path, capsys, GOOD, ["--symbols"])
-    assert code == 0 and "Scope 0 (global)" in out and out.rstrip().endswith("(none)")
-
-
-def test_cli_without_parser_flags_skips_semantics(tmp_path, capsys):
-    """Only --tokens: the parser (and so the semantic stage) does not run yet (D-019; Phase 7 changes this)."""
-    code, out = run_cli(tmp_path, capsys, TYPE_ERROR, ["--tokens"])
-    assert code == 0 and "Semantic" not in out
-
-
-# ------------------------------------------------------------ Phase 5b carry-forward (CLI robustness)
-
-def run_cli_err(tmp_path, capsys, source, flags, png=None):
-    """Like run_cli but returns (exit code, stdout, stderr)."""
-    path = tmp_path / "prog.sl"
-    path.write_text(source, encoding="utf-8")
-    code = run(str(path), set(flags), png)
-    captured = capsys.readouterr()
-    return code, captured.out, captured.err
-
-
-def test_cli_lexical_errors_only_skip_semantic_stage(tmp_path, capsys):
-    """A file with ONLY a lexical error: the undeclared `ghost` is not reported, --symbols says skipped."""
-    source = "int main() {\n    int y = ghost;\n    int x = 1 @;\n    return 0;\n}\n"
-    code, out, _ = run_cli_err(tmp_path, capsys, source, ["--tree", "--symbols"])
-    errors_part = out.split("== ERRORS ==")[1]
-    assert "[Lexical Error]" in errors_part and "[Syntax Error]" not in errors_part
-    assert "Semantic" not in out and "ghost" not in errors_part
-    assert "(skipped: lexical or syntax errors)" in out and code == 1
-
-
-def test_cli_symbols_after_nested_too_deeply(tmp_path, capsys):
-    """900 unary minus signs: one `nested too deeply` error, and --symbols still prints without a crash."""
-    source = "int main() {\n    return " + "-" * 900 + "1;\n}\n"
-    code, out, err = run_cli_err(tmp_path, capsys, source, ["--symbols"])
-    assert code == 1 and err == ""
-    assert "== SYMBOL TABLES ==" in out and "Scope 0 (global)" in out
-    assert out.count("Program is nested too deeply to analyze") == 1
-
-
-DEEP_CHAIN = "int main() {\n    return " + "1 + " * 3000 + "1;\n}\n"
-
-
-def test_cli_deep_chain_tree_gives_one_line_error(tmp_path, capsys):
-    """3000-term chain: tree_to_text hits the recursion limit; main prints ONE stderr line, exit 1 (never 2)."""
-    code, _, err = run_cli_err(tmp_path, capsys, DEEP_CHAIN, ["--tree"])
-    assert code == 1
-    assert err.count("\n") == 1 and err.startswith("error: ") and "Traceback" not in err
-
-
-@pytest.mark.skipif(shutil.which("dot") is None, reason="graphviz dot binary not installed")
-def test_cli_deep_chain_tree_png_gives_one_line_error(tmp_path, capsys):
-    """Same for --tree-png (was exit 2 with a terse 'maximum recursion depth exceeded')."""
-    code, _, err = run_cli_err(tmp_path, capsys, DEEP_CHAIN, ["--tree-png"], str(tmp_path / "t.png"))
-    assert code == 1
-    assert err.count("\n") == 1 and err.startswith("error: ") and "too deeply" in err
-
-
-def test_cli_missing_file_is_still_exit_2(tmp_path, capsys):
-    """Exit 2 stays reserved for usage and file errors."""
-    assert run(str(tmp_path / "nope.sl"), {"--tree"}) == 2

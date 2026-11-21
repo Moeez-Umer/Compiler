@@ -2,7 +2,7 @@
 
 Tags: `[PLANNED]` until built, then `[BUILT]`.
 
-## 1. Pipeline diagram [BUILT: source → lexer → parser (with error recovery) → semantic (5a and 5b) → tacgen; main.py `--all`/default flag polish is PLANNED for Phase 7]
+## 1. Pipeline diagram [BUILT: source → lexer → parser (with error recovery) → semantic (5a and 5b) → tacgen → main.py (Phase 7: `--all` default, fixed section order)]
 
 ```mermaid
 flowchart LR
@@ -18,7 +18,7 @@ flowchart LR
     ERR -.-> OUT
 ```
 
-## 2. Data passed between stages [BUILT for lexer, parser, semantic (5a, 5b), tacgen, and `--tokens`/`--tree`/`--tree-png`/`--symbols`/`--tac` in main; Phase 7 CLI polish PLANNED]
+## 2. Data passed between stages [BUILT for lexer, parser, semantic (5a, 5b), tacgen, and the full CLI in main (Phase 7)]
 
 | Stage | Input | Output | Notes |
 |---|---|---|---|
@@ -26,7 +26,7 @@ flowchart LR
 | parser [BUILT, with panic-mode recovery, D-021, D-022] | `list[Token]`, `ErrorCollector` | `Program` tree | Never raises or hangs. Skips `INVALID` tokens silently. Reports every syntax error it finds; the partial tree keeps all items and statements that parsed plus the recovered function. |
 | semantic [BUILT 5a: scopes, declarations, expression typing; BUILT 5b: callee, arity, argument types, return type, missing return] | `Program`, `ErrorCollector` | `SymbolTable`, plus annotations on the tree | Annotations: `expr_type`, `tac_name`, `scope_id`. Pass 1 collects function signatures, pass 2 checks bodies. |
 | tacgen [BUILT: Phase 6, D-038 to D-040] | annotated `Program` | `list[str]` | Precondition: zero errors and `tac_name` annotations present. Temporaries `t1..`, labels `L1..`, numbered per program. |
-| main [BUILT: `--tokens`, `--tree`, `--tree-png`, `--symbols`, `--tac`; `--all` default PLANNED for Phase 7] | path, flags | exit code | Prints sections in order: tokens, tree, symbol tables, errors, TAC. |
+| main [BUILT: Phase 7, D-041 to D-043] | path, flags (`--tokens --tree --symbols --tac --all`, `--tree-png PATH`) | exit code (0, 1, 2) | `run_pipeline` returns a `Compiled` record (tokens, tree, errors, table or None, tac or None); `build_sections` turns it into section texts in the order tokens, tree, symbol tables, errors, TAC; `run` prints them once, one blank line apart. |
 
 ## 3. Error flow [BUILT]
 
@@ -76,7 +76,7 @@ flowchart TD
 
 Status per module: `tokens.py` and `errors.py` are [BUILT] (Phase 0); `lexer.py` is [BUILT] (Phase 1);
 `ast_nodes.py`, `parser.py`, `tree_export.py` are [BUILT] (Phases 2 and 3); `symbol_table.py` is [BUILT] (Phase 4);
-`semantic.py` is [BUILT] (Phases 5a and 5b); `tacgen.py` is [BUILT] (Phase 6); `main.py` is built for `--tokens`, `--tree`, `--tree-png`, `--symbols`, and `--tac` (Phase 7 adds `--all` and no-flag default).
+`semantic.py` is [BUILT] (Phases 5a and 5b); `tacgen.py` is [BUILT] (Phase 6); `main.py` is [BUILT] (Phase 7: all flags, `--all`, no-flag default).
 
 Symbol table internals [BUILT]: `SymbolTable` maintains two lists of `_Scope` records: `_active` (the currently open
 lexical scopes from outermost `global` to innermost) and `_all_scopes` (append-only creation-order history of every scope
@@ -112,7 +112,7 @@ characters, anything else INVALID). Every INVALID token also reports a Lexical e
 | `symbol_table.py` | [BUILT] | `Symbol`, `SymbolTable` (`enter_scope`, `exit_scope`, `declare`, `lookup`, `lookup_current`, `current_level`, `dump`) | none |
 | `semantic.py` | [BUILT: Phases 5a and 5b] | `analyze(tree, errors) -> SymbolTable` | `parser` outputs, `ast_nodes`, `symbol_table`, `errors` |
 | `tacgen.py` | [BUILT: Phase 6] | `generate(tree) -> list[str]` | `semantic` annotations, `ast_nodes` |
-| `main.py` | [BUILT: `--tokens`, `--tree`, `--tree-png`, `--symbols`, `--tac`] | `run(path, flags, png_path=None) -> int` (D-019) | `lexer`, `parser`, `tree_export`, `semantic`, `tacgen`, `errors`, `tokens` |
+| `main.py` | [BUILT: Phase 7, all flags] | `run(path, flags, png_path=None) -> int` (D-019) | `lexer`, `parser`, `tree_export`, `semantic`, `tacgen`, `errors`, `tokens` |
 
 Dependency direction (no cycles):
 `tokens, errors` ← `lexer` ← `parser` (also `ast_nodes`) ← `semantic` (uses `symbol_table`) ← `tacgen` ← `main`.
@@ -129,10 +129,19 @@ the arity, and each argument against its parameter; the call keeps the function'
 `current_function` (saved and restored) so `check_return` compares each `return` with its own function's type, and
 `check_missing_return` reports at the closing brace (`Block.end_line/end_col`, D-034); the rule is strict (D-035).
 
-`main.py` wraps all stages in `run_stages`; a `RecursionError` (3000-term chain with `--tree` or `--tree-png`) gives one stderr line and exit 1 (D-037).
+## 5a. main.py (Phase 7) [BUILT]
 
-`main.py` stage order [BUILT]: tokens, parse tree, symbol tables (`--symbols`), errors, three-address code (`--tac`). The semantic stage runs when the parser ran and
-there are no Lexical or Syntax errors (D-031); semantic errors do not stop `--symbols` from printing the tables, and any error (Lexical, Syntax, or Semantic) skips `--tac` with `(skipped: compilation errors)`.
+Stages run independently of the flags (D-041): `run_pipeline` always lexes and parses; analyzes only without Lexical/Syntax errors; generates TAC only with zero errors.
+The flags only select sections: `--all`, or no section flag, means `--tokens --tree --symbols --tac`; `== ERRORS ==` is always printed (`(none)` when empty).
+Sections come from one small `build_*_section` function each and are built BEFORE anything is printed (D-042); order: TOKENS, PARSE TREE, SYMBOL TABLES, ERRORS, THREE-ADDRESS CODE, one blank line between sections.
+A skipped stage prints `(skipped: <reason>)`. Deep trees: `(skipped: nested too deeply to print)` for the tree section only, exit 1. `--tree-png PATH` runs after printing, reports `wrote PATH` or one `error:` line on stderr, exit 1 (too deep) or 2 (Graphviz, `dot` or file problem) (D-043).
+Exit codes: 0 no errors, 1 any compile error, 2 usage or file error (no file, unreadable or non-UTF-8 file, directory, unknown flag, `--tree-png` without PATH).
+
+| Flags | Clean file | Lexical or syntax error | Semantic error only |
+|---|---|---|---|
+| none, `--all` | all five sections; ERRORS `(none)`; exit 0 | all five; partial tree; symbols `(skipped: lexical or syntax errors)`; TAC `(skipped: compilation errors)`; exit 1 | all five; tables printed; TAC skipped; exit 1 |
+| any subset of `--tokens --tree --symbols --tac` | those sections plus ERRORS, fixed order | same, with the skip lines above where a skipped stage is requested | same |
+| `--tree-png PATH` added | stdout unchanged; PNG written; `wrote PATH` on stderr | same (partial tree drawn) | same |
 
 ## 6. Three-address code generator internals (Phase 6) [BUILT]
 

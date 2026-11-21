@@ -12,12 +12,18 @@ Deadline: Dec 5, 2026. Tick a phase only after the user has verified it.
 - [~] Phase 5: Semantic analyzer (Nov 26 to 29)
   - [~] 5a: scopes, declarations, expression typing - committed (`e515e18`, tag `phase-5a`, per `git log`); box left `[~]` until you confirm verification
   - [~] 5b: callee, arity and argument types, return checks, missing return - committed (`f40c71c`, tag `phase-5b`, per `git log`); box left `[~]` until you confirm verification
-- [~] Phase 6: Three-address code generator (Nov 30 to Dec 1) - built, awaiting your verification and commit (not committed)
-- [ ] Phase 7: CLI integration and output polish (Dec 1 to 2)
+- [~] Phase 6: Three-address code generator (Nov 30 to Dec 1) - committed (`ff904c9`, tag `phase-6`, per `git log`); box left `[~]` until you confirm verification
+- [~] Phase 7: CLI integration and output polish (Dec 1 to 2) - built, 702 tests pass, awaiting your verification and commit (not committed)
 - [ ] Phase 8: Test suite, hardening, clean-clone check (Dec 2 to 3)
 - [ ] Phase 9: Report and viva prep (Dec 3 to 4)
 
 ## Open issues
+
+- Phase 7 (D-041): flags only choose what is printed; the lexer and parser always run, semantic only without Lexical/Syntax errors, TAC only without errors. Tests changed by this: `test_cli_tokens_only_still_runs_semantic_stage` (was "--tokens alone does not run the semantic stage"), `--tokens` added to the flag sets of two section-order tests (TOKENS is no longer always printed).
+- Phase 7 (D-042): all CLI tests moved to `tests/test_cli.py` (paths made absolute via `Path(__file__)`); the deep-chain `--tree` tests now expect `(skipped: nested too deeply to print)`, exit 1 and empty stderr (resolves the D-037 caveat).
+- Phase 7 (D-043): `--tree-png` writes `wrote PATH` to stderr (stdout identical); PNG errors exit 1 (too deep) or 2 (Graphviz/dot/file) and never hide sections.
+- Phase 7 (not changed, out of scope): `tests/test_syntax_errors.py` still holds one CLI test (`test_deep_nesting_gives_one_error_and_exit_code_1`); it passes unchanged. `tree_export.py` is still recursive, so trees about 3000 deep cannot be printed or drawn.
+- Phase 7: `samples/` has five files: three end-to-end demos (`valid_program.sl`, `errors_lexical_syntax.sl`, `errors_semantic.sl`) and two lexer demos (`valid_all_tokens.sl`, `invalid_lexical.sl`), plus `valid_program_tree.png` (an old Phase 2 output).
 
 - Phase 6 (D-038): assignments and initialized declarations always emit a copy instruction (`t2 = a + t1`, then `x = t2`), and `else-if` chains preserve stacked closing labels (`L6:`, `L4:`, `L2:`) without peephole merging (optimization is out of scope, SPEC section 15).
 - Phase 6 (D-039): `generate(tree)` raises `ValueError` if any `VarDecl`, `Assign`, or `Identifier` has `tac_name=None` (no silent fallback to `node.name`). Notice also that because `semantic.py` assigns `tac_name` from a program-wide `used_names` set (D-029), a local variable whose name appeared as a parameter in an earlier function gets `name_1` (observed in `tests/golden/calls.tac`: `a_1`, `b_1` in `main` after `combine(int a, int b)`).
@@ -48,15 +54,14 @@ Deadline: Dec 5, 2026. Tick a phase only after the user has verified it.
 
 - Phase 5b MUST items: all done in 5b (see D-033 to D-037); `test_5b_not_checked_yet` was deleted.
 - Parser (later, needs approval): store the NAME position on `VarDecl` and `Param` so declaration errors can point at the name instead of the type keyword (D-030).
-- Phase 7: the parser currently only runs with `--tree`/`--tree-png`/`--symbols`/`--tac`; make it part of the default pipeline.
-- Phase 7: replace the Phase 1 flag handling in `main.py` (D-015); no flag must mean `--all`.
+- Phase 7: done (parser in the default pipeline, flag handling replaced, no flag means `--all`; D-041).
 - Phase 8: `test_programs.py` should run `tests/valid` and `tests/invalid` end to end (EXPECT lines are in place for lexical, syntax, and semantic cases).
 
 ## Next step
 
-Verify Phase 6 yourself: `source .venv/bin/activate && pytest -q`, `python src/main.py tests/valid/spec_sample.sl --tac`, `python src/main.py tests/golden/nested_loops.sl --tac`, `git status`.
-Then commit (`phase-6: three-address code generator and golden TAC suite`) and `git tag phase-6`.
-Then Phase 7 (CLI integration and output polish).
+Verify Phase 7 yourself: `source .venv/bin/activate && pytest -q -rs`, `python src/main.py samples/valid_program.sl`, `python src/main.py samples/errors_lexical_syntax.sl`, `python src/main.py samples/errors_semantic.sl`, `git status`.
+Then commit (`phase-7: full CLI, fixed section order, samples and README`) and `git tag phase-7`.
+Then Phase 8 (test suite, hardening, clean-clone check).
 
 ## Hand-traced golden file walk-through (viva reference)
 

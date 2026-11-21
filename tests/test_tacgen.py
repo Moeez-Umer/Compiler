@@ -5,7 +5,6 @@ import pytest
 
 from src.errors import ErrorCollector
 from src.lexer import tokenize
-from src.main import run
 from src.parser import parse
 from src.semantic import analyze
 from src.tacgen import generate
@@ -464,90 +463,3 @@ def test_800_term_addition_chain_generates_correct_tac():
     assert tac[801] == "  return x"
     assert tac[802] == "endfunc"
     assert len(tac) == 803
-
-
-def run_cli(tmp_path, capsys, source: str, flags: list[str]):
-    """Write `source` to a temporary `.sl` file, invoke `run`, and return `(code, stdout, stderr)`."""
-    path = tmp_path / "prog.sl"
-    path.write_text(source, encoding="utf-8")
-    code = run(str(path), set(flags))
-    captured = capsys.readouterr()
-    return code, captured.out, captured.err
-
-
-def test_cli_3000_term_chain_with_tac_alone_succeeds(tmp_path, capsys):
-    """Addition 4: 3000-term `1 + 1 + ...` chain with `--tac` alone succeeds (all stages loop down left spine)."""
-    source = "int main() {\n    return " + "1 + " * 3000 + "1;\n}\n"
-    code, out, err = run_cli(tmp_path, capsys, source, ["--tac"])
-    assert code == 0 and err == ""
-    assert "== THREE-ADDRESS CODE ==" in out
-    assert "  t1 = 1 + 1" in out
-    assert "  t3000 = t2999 + 1" in out
-    assert "  return t3000" in out
-
-
-def test_cli_3000_term_chain_with_tree_and_tac_gives_one_line_error(tmp_path, capsys):
-    """Requirement 4 & Addition 4: 3000-term chain with `--tree --tac` gives one-line RecursionError and exit 1."""
-    source = "int main() {\n    return " + "1 + " * 3000 + "1;\n}\n"
-    code, _, err = run_cli(tmp_path, capsys, source, ["--tree", "--tac"])
-    assert code == 1
-    assert err == "error: program is nested too deeply to process (recursion limit exceeded)\n"
-    assert "Traceback" not in err
-
-
-def test_cli_900_unary_chain_with_tac_skips_tac_and_exits_1(tmp_path, capsys):
-    """Right-nested 900 unary minus chain reports a Semantic error and skips TAC cleanly."""
-    source = "int main() {\n    return " + "-" * 900 + "1;\n}\n"
-    code, out, err = run_cli(tmp_path, capsys, source, ["--tac"])
-    assert code == 1 and err == ""
-    assert "Program is nested too deeply to analyze" in out
-    tac_section = out.split("== THREE-ADDRESS CODE ==")[1]
-    assert tac_section.strip() == "(skipped: compilation errors)"
-
-
-# ------------------------------------------------------------------ CLI --tac integration
-
-def test_cli_tac_prints_section_after_errors(tmp_path, capsys):
-    """Requirement 3: `--tac` prints `== THREE-ADDRESS CODE ==` after `== ERRORS ==` and exits 0 on valid input."""
-    source = "int main() {\n    int x = 2 + 3;\n    return x;\n}\n"
-    code, out, err = run_cli(tmp_path, capsys, source, ["--symbols", "--tac"])
-    assert code == 0 and err == ""
-    assert out.index("== TOKENS ==") < out.index("== SYMBOL TABLES ==")
-    assert out.index("== SYMBOL TABLES ==") < out.index("== ERRORS ==")
-    assert out.index("== ERRORS ==") < out.index("== THREE-ADDRESS CODE ==")
-    tac_section = out.split("== THREE-ADDRESS CODE ==")[1].strip().splitlines()
-    assert tac_section == [
-        "func main:",
-        "  t1 = 2 + 3",
-        "  x = t1",
-        "  return x",
-        "endfunc",
-    ]
-
-
-@pytest.mark.parametrize(
-    "bad_source,expected_error",
-    [
-        ("int main() {\n    int x = 1 @;\n    return x;\n}\n", "[Lexical Error]"),
-        ("int main() {\n    int x = ;\n    return 0;\n}\n", "[Syntax Error]"),
-        ("int main() {\n    int x = 2.5;\n    return x;\n}\n", "[Semantic Error]"),
-    ],
-)
-def test_cli_tac_skipped_on_any_error(tmp_path, capsys, bad_source, expected_error):
-    """Requirement 2 & 3: lexical, syntax, or semantic errors skip TAC and print one skip line."""
-    code, out, err = run_cli(tmp_path, capsys, bad_source, ["--tac"])
-    assert code == 1 and err == ""
-    assert expected_error in out
-    assert "== THREE-ADDRESS CODE ==" in out
-    tac_section = out.split("== THREE-ADDRESS CODE ==")[1]
-    assert tac_section.strip() == "(skipped: compilation errors)"
-    assert "func main:" not in tac_section
-
-
-def test_cli_tac_prints_none_when_no_instructions_emitted(tmp_path, capsys):
-    """A valid file with only an uninitialized global emits zero TAC lines and prints `(none)`."""
-    code, out, err = run_cli(tmp_path, capsys, "int g;\n", ["--tac"])
-    assert code == 0 and err == ""
-    tac_section = out.split("== THREE-ADDRESS CODE ==")[1]
-    assert tac_section.strip() == "(none)"
-

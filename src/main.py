@@ -1,19 +1,23 @@
-"""SmartLang compiler command line (SPEC section 12, interfaces.md: main.py).
+"""SmartLang compiler command line (SPEC sections 9 and 12, interfaces.md: main.py).
 
-Phase 6: --tokens, --tree / --tree-png, --symbols and --tac exist. Later phases add polish (D-007).
-This is the only module that prints.
+Phase 7: the full pipeline always runs as far as the errors allow (D-041), every section's text
+is built first and printed afterwards in a fixed order (D-042), and PNG problems are reported on
+stderr without hiding the sections (D-043). This is the only module that prints.
 """
 import os
 import sys
+from dataclasses import dataclass
 
 # `python src/main.py` puts src/ (not the repo root) on sys.path, so add the root
 # BEFORE the `src.` imports below. Harmless when imported by pytest.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from src.ast_nodes import Program  # noqa: E402
 from src.errors import ErrorCollector  # noqa: E402
 from src.lexer import tokenize  # noqa: E402
 from src.parser import parse  # noqa: E402
 from src.semantic import analyze  # noqa: E402
+from src.symbol_table import SymbolTable  # noqa: E402
 from src.tacgen import generate  # noqa: E402
 from src.tokens import Token  # noqa: E402
 from src.tree_export import export_png, tree_to_text  # noqa: E402
@@ -22,9 +26,39 @@ EXIT_OK = 0
 EXIT_COMPILE_ERROR = 1
 EXIT_USAGE = 2
 
-KNOWN_FLAGS = {"--tokens", "--tree", "--tree-png", "--symbols", "--tac"}
-USAGE = "usage: python src/main.py prog.sl [--tokens] [--tree] [--tree-png PATH] [--symbols] [--tac]"
+SECTION_FLAGS = ("--tokens", "--tree", "--symbols", "--tac")
+KNOWN_FLAGS = set(SECTION_FLAGS) | {"--tree-png", "--all"}
+USAGE = ("usage: python src/main.py prog.sl [--tokens] [--tree] [--tree-png PATH] "
+         "[--symbols] [--tac] [--all]")
 
+
+@dataclass
+class Compiled:
+    """Everything the pipeline produced; a stage that was skipped leaves its field None."""
+    tokens: list[Token]
+    tree: Program
+    errors: ErrorCollector
+    table: SymbolTable | None = None
+    tac: list[str] | None = None
+
+
+# ------------------------------------------------------------------ pipeline
+
+def run_pipeline(source: str) -> Compiled:
+    """Lexer and parser always run; semantic only without Lexical/Syntax errors; TAC only
+    without any error (SPEC section 9). May raise RecursionError (see `run`)."""
+    errors = ErrorCollector()
+    tokens = tokenize(source, errors)
+    tree = parse(tokens, errors)
+    result = Compiled(tokens, tree, errors)
+    if not (errors.has_kind("Lexical") or errors.has_kind("Syntax")):
+        result.table = analyze(tree, errors)
+    if not errors.has_errors():
+        result.tac = generate(tree)
+    return result
+
+
+# ------------------------------------------------------------------ sections
 
 def format_token_table(tokens: list[Token]) -> str:
     """Render tokens as an aligned table: type, lexeme, line, col."""
@@ -39,13 +73,99 @@ def format_token_table(tokens: list[Token]) -> str:
     return "\n".join(lines)
 
 
+def build_tokens_section(compiled: Compiled) -> str:
+    """`== TOKENS ==` and the token table."""
+    return "== TOKENS ==\n" + format_token_table(compiled.tokens)
+
+
+def build_tree_section(compiled: Compiled) -> tuple[str, bool]:
+    """`== PARSE TREE ==`; returns (text, ok). Printing is recursive, so a very deep tree
+    gives a skip line and ok=False (the exit code becomes 1, D-043)."""
+    try:
+        return "== PARSE TREE ==\n" + tree_to_text(compiled.tree), True
+    except RecursionError:
+        return "== PARSE TREE ==\n(skipped: nested too deeply to print)", False
+
+
+def build_symbols_section(compiled: Compiled) -> str:
+    """`== SYMBOL TABLES ==`, or a skip line when the semantic stage did not run."""
+    if compiled.table is None:
+        return "== SYMBOL TABLES ==\n(skipped: lexical or syntax errors)"
+    return "== SYMBOL TABLES ==\n" + compiled.table.dump()
+
+
+def build_errors_section(compiled: Compiled) -> str:
+    """`== ERRORS ==`: one formatted line per error, or `(none)`. Always printed."""
+    lines = [error.format() for error in compiled.errors.all()]
+    return "== ERRORS ==\n" + ("\n".join(lines) if lines else "(none)")
+
+
+def build_tac_section(compiled: Compiled) -> str:
+    """`== THREE-ADDRESS CODE ==`, or a skip line when any error exists."""
+    if compiled.tac is None:
+        return "== THREE-ADDRESS CODE ==\n(skipped: compilation errors)"
+    return "== THREE-ADDRESS CODE ==\n" + ("\n".join(compiled.tac) if compiled.tac else "(none)")
+
+
+def resolve_flags(flags: set[str]) -> set[str]:
+    """`--all`, or no section flag at all, means every section (the PNG is never implied)."""
+    if "--all" in flags or not flags & set(SECTION_FLAGS):
+        return set(SECTION_FLAGS)
+    return flags & set(SECTION_FLAGS)
+
+
+def build_sections(compiled: Compiled, flags: set[str]) -> tuple[list[str], bool]:
+    """All requested sections as text, in the fixed order; the bool is False if the tree failed."""
+    active = resolve_flags(flags)
+    sections: list[str] = []
+    tree_ok = True
+    if "--tokens" in active:
+        sections.append(build_tokens_section(compiled))
+    if "--tree" in active:
+        text, tree_ok = build_tree_section(compiled)
+        sections.append(text)
+    if "--symbols" in active:
+        sections.append(build_symbols_section(compiled))
+    sections.append(build_errors_section(compiled))
+    if "--tac" in active:
+        sections.append(build_tac_section(compiled))
+    return sections, tree_ok
+
+
+# ------------------------------------------------------------------ PNG and run
+
+def one_line(text: object) -> str:
+    """Collapse any message to a single line (stderr messages are one line)."""
+    return " ".join(str(text).split())
+
+
+def write_png(tree: Program, png_path: str | None) -> int:
+    """Write the tree image; return 0, or the exit code of the failure (D-043).
+
+    Recursion too deep to draw is 1; a Graphviz, `dot` or file problem is 2.
+    """
+    if png_path is None:
+        print("error: --tree-png needs a PATH", file=sys.stderr)
+        return EXIT_USAGE
+    try:
+        export_png(tree, png_path)
+    except RecursionError:
+        print("error: cannot draw PNG: tree nested too deeply", file=sys.stderr)
+        return EXIT_COMPILE_ERROR
+    except (RuntimeError, OSError) as exc:
+        print(f"error: {one_line(exc)}", file=sys.stderr)
+        return EXIT_USAGE
+    print(f"wrote {png_path}", file=sys.stderr)
+    return EXIT_OK
+
+
 def read_source(path: str) -> str | None:
     """Return the file text, or None if it cannot be read as UTF-8 text."""
     try:
         with open(path, encoding="utf-8", newline="") as handle:
             return handle.read()
     except (OSError, UnicodeDecodeError) as exc:
-        print(f"error: cannot read '{path}': {exc}", file=sys.stderr)
+        print(f"error: cannot read '{path}': {one_line(exc)}", file=sys.stderr)
         return None
 
 
@@ -53,104 +173,32 @@ def run(path: str, flags: set[str], png_path: str | None = None) -> int:
     """Compile one file and print the requested sections. Returns the exit code.
 
     `png_path` is the PATH argument of --tree-png (D-019); `flags` holds the flag names.
+    Sections are built before anything is printed, so a failure cannot leave half an output.
     """
     source = read_source(path)
     if source is None:
         return EXIT_USAGE
     try:
-        return run_stages(source, flags, png_path)
+        compiled = run_pipeline(source)
+        sections, tree_ok = build_sections(compiled, flags)
     except RecursionError:
-        # SPEC section 9: never crash. Tree printing, drawing and the analyzer are recursive, so an
-        # absurdly deep program ends here with one line on stderr (exit 1: a compile failure, not usage).
-        print("error: program is nested too deeply to process (recursion limit exceeded)", file=sys.stderr)
+        # Safety net (SPEC section 9: never crash): nothing has been printed yet.
+        print("error: program is nested too deeply to process (recursion limit exceeded)",
+              file=sys.stderr)
         return EXIT_COMPILE_ERROR
+    print("\n\n".join(sections))
+    code = EXIT_COMPILE_ERROR if compiled.errors.has_errors() or not tree_ok else EXIT_OK
+    if "--tree-png" in flags:
+        code = max(code, write_png(compiled.tree, png_path))
+    return code
 
 
-def run_stages(source: str, flags: set[str], png_path: str | None) -> int:
-    """Lex, parse, analyze and print the requested sections; may raise RecursionError (see `run`)."""
-    errors = ErrorCollector()
-    tokens = tokenize(source, errors)
-    print("== TOKENS ==")
-    print(format_token_table(tokens))
-    print()
-    # Parse only when a parser-based output was asked for; syntax errors are reported then (D-019).
-    tree = parse(tokens, errors) if wants_tree(flags) else None
-    if tree is not None and "--tree" in flags:
-        print("== PARSE TREE ==")
-        print(tree_to_text(tree))
-        print()
-    run_semantic_stage(tree, flags, errors)
-    print("== ERRORS ==")
-    for error in errors.all():
-        print(error.format())
-    if not errors.has_errors():
-        print("(none)")
-    run_tac_stage(tree, flags, errors)
-    if tree is not None and "--tree-png" in flags:
-        if not write_png(tree, png_path):
-            return EXIT_USAGE
-    return EXIT_COMPILE_ERROR if errors.has_errors() else EXIT_OK
-
-
-def wants_tree(flags: set[str]) -> bool:
-    """True if any requested output needs the parser (and so the semantic stage)."""
-    return bool(flags & {"--tree", "--tree-png", "--symbols", "--tac"})
-
-
-def run_tac_stage(tree, flags: set[str], errors: ErrorCollector) -> None:
-    """Print `== THREE-ADDRESS CODE ==` when `--tac` is requested (SPEC sections 11 and 12).
-
-    TAC is generated ONLY when there are zero errors; otherwise one skip line is printed.
-    """
-    if "--tac" not in flags:
-        return
-    print()
-    print("== THREE-ADDRESS CODE ==")
-    if tree is None or errors.has_errors():
-        print("(skipped: compilation errors)")
-        return
-    lines = generate(tree)
-    print("\n".join(lines) if lines else "(none)")
-
-
-def run_semantic_stage(tree, flags: set[str], errors: ErrorCollector) -> None:
-    """Analyze the tree when the parser ran and found no Lexical or Syntax errors (SPEC section 9).
-
-    Semantic errors go into `errors` (printed under == ERRORS ==). With --symbols the tables are
-    printed even when semantic errors exist; after lexical or syntax errors a skip note is printed.
-    """
-    if tree is None:
-        return
-    if errors.has_kind("Lexical") or errors.has_kind("Syntax"):
-        if "--symbols" in flags:
-            print("== SYMBOL TABLES ==")
-            print("(skipped: lexical or syntax errors)")
-            print()
-        return
-    table = analyze(tree, errors)
-    if "--symbols" in flags:
-        print("== SYMBOL TABLES ==")
-        print(table.dump())
-        print()
-
-
-def write_png(tree, png_path: str | None) -> bool:
-    """Write the tree image and report it; on failure print the reason to stderr."""
-    try:
-        export_png(tree, png_path)
-    except RecursionError:
-        raise   # a RuntimeError subclass: let `run` give the clear "nested too deeply" message and exit 1
-    except RuntimeError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return False
-    print(f"PNG written: {png_path}")
-    return True
-
+# ------------------------------------------------------------------ arguments
 
 def parse_args(argv: list[str]) -> tuple[str, set[str], str | None] | None:
-    """Split argv into (path, flags, png_path); None on a usage error.
+    """Split argv into (path, flags, png_path) in any order; None on a usage error.
 
-    `--tree-png` must be followed by a path, which is not counted as the source file.
+    `--tree-png` must be followed by a PATH (not a flag); the PATH is not the source file.
     """
     paths: list[str] = []
     flags: set[str] = set()
@@ -159,7 +207,7 @@ def parse_args(argv: list[str]) -> tuple[str, set[str], str | None] | None:
     while index < len(argv):
         arg = argv[index]
         if arg == "--tree-png":
-            if index + 1 >= len(argv):
+            if index + 1 >= len(argv) or argv[index + 1].startswith("-"):
                 return None
             png_path = argv[index + 1]
             index += 1

@@ -2,7 +2,7 @@
 
 Tags: `[PLANNED]` until built, then `[BUILT]`.
 
-## 1. Pipeline diagram [PLANNED; source → lexer → parser (with error recovery) → semantic (5a and 5b) is BUILT; tacgen is PLANNED]
+## 1. Pipeline diagram [BUILT: source → lexer → parser (with error recovery) → semantic (5a and 5b) → tacgen; main.py `--all`/default flag polish is PLANNED for Phase 7]
 
 ```mermaid
 flowchart LR
@@ -18,17 +18,17 @@ flowchart LR
     ERR -.-> OUT
 ```
 
-## 2. Data passed between stages [PLANNED; lexer, parser, semantic (5a, 5b) rows and the tokens/tree/symbols parts of main are BUILT]
+## 2. Data passed between stages [BUILT for lexer, parser, semantic (5a, 5b), tacgen, and `--tokens`/`--tree`/`--tree-png`/`--symbols`/`--tac` in main; Phase 7 CLI polish PLANNED]
 
 | Stage | Input | Output | Notes |
 |---|---|---|---|
-| lexer | source text, `ErrorCollector` | `list[Token]` | Always ends with `EOF`. Bad input becomes `INVALID` tokens plus a Lexical error. |
+| lexer [BUILT] | source text, `ErrorCollector` | `list[Token]` | Always ends with `EOF`. Bad input becomes `INVALID` tokens plus a Lexical error. |
 | parser [BUILT, with panic-mode recovery, D-021, D-022] | `list[Token]`, `ErrorCollector` | `Program` tree | Never raises or hangs. Skips `INVALID` tokens silently. Reports every syntax error it finds; the partial tree keeps all items and statements that parsed plus the recovered function. |
 | semantic [BUILT 5a: scopes, declarations, expression typing; BUILT 5b: callee, arity, argument types, return type, missing return] | `Program`, `ErrorCollector` | `SymbolTable`, plus annotations on the tree | Annotations: `expr_type`, `tac_name`, `scope_id`. Pass 1 collects function signatures, pass 2 checks bodies. |
-| tacgen | annotated `Program` | `list[str]` | Precondition: zero errors. Temporaries `t1..`, labels `L1..`, numbered per program. |
-| main | path, flags | exit code | Prints sections in order: tokens, tree, symbol tables, errors, TAC. |
+| tacgen [BUILT: Phase 6, D-038 to D-040] | annotated `Program` | `list[str]` | Precondition: zero errors and `tac_name` annotations present. Temporaries `t1..`, labels `L1..`, numbered per program. |
+| main [BUILT: `--tokens`, `--tree`, `--tree-png`, `--symbols`, `--tac`; `--all` default PLANNED for Phase 7] | path, flags | exit code | Prints sections in order: tokens, tree, symbol tables, errors, TAC. |
 
-## 3. Error flow [PLANNED; the syntax-error recovery inside the parser is BUILT, see 3a]
+## 3. Error flow [BUILT]
 
 ```mermaid
 flowchart TD
@@ -76,7 +76,7 @@ flowchart TD
 
 Status per module: `tokens.py` and `errors.py` are [BUILT] (Phase 0); `lexer.py` is [BUILT] (Phase 1);
 `ast_nodes.py`, `parser.py`, `tree_export.py` are [BUILT] (Phases 2 and 3); `symbol_table.py` is [BUILT] (Phase 4);
-`semantic.py` is [BUILT] for Phases 5a and 5b; `main.py` is partly built (`--tokens` Phase 1, `--tree` and `--tree-png` Phase 2, `--symbols` Phase 5a); all others are [PLANNED].
+`semantic.py` is [BUILT] (Phases 5a and 5b); `tacgen.py` is [BUILT] (Phase 6); `main.py` is built for `--tokens`, `--tree`, `--tree-png`, `--symbols`, and `--tac` (Phase 7 adds `--all` and no-flag default).
 
 Symbol table internals [BUILT]: `SymbolTable` maintains two lists of `_Scope` records: `_active` (the currently open
 lexical scopes from outermost `global` to innermost) and `_all_scopes` (append-only creation-order history of every scope
@@ -111,8 +111,8 @@ characters, anything else INVALID). Every INVALID token also reports a Lexical e
 | `tree_export.py` | [BUILT] | `tree_to_text`, `tree_to_dot`, `export_png` | `ast_nodes` only |
 | `symbol_table.py` | [BUILT] | `Symbol`, `SymbolTable` (`enter_scope`, `exit_scope`, `declare`, `lookup`, `lookup_current`, `current_level`, `dump`) | none |
 | `semantic.py` | [BUILT: Phases 5a and 5b] | `analyze(tree, errors) -> SymbolTable` | `parser` outputs, `ast_nodes`, `symbol_table`, `errors` |
-| `tacgen.py` | [PLANNED] | `generate(tree) -> list[str]` | `semantic` annotations, `ast_nodes` |
-| `main.py` | [BUILT: `--tokens`, `--tree`, `--tree-png`, `--symbols`] | `run(path, flags, png_path=None) -> int` (D-019) | `lexer`, `parser`, `tree_export`, `errors`, `tokens` now; all of the above later |
+| `tacgen.py` | [BUILT: Phase 6] | `generate(tree) -> list[str]` | `semantic` annotations, `ast_nodes` |
+| `main.py` | [BUILT: `--tokens`, `--tree`, `--tree-png`, `--symbols`, `--tac`] | `run(path, flags, png_path=None) -> int` (D-019) | `lexer`, `parser`, `tree_export`, `semantic`, `tacgen`, `errors`, `tokens` |
 
 Dependency direction (no cycles):
 `tokens, errors` ← `lexer` ← `parser` (also `ast_nodes`) ← `semantic` (uses `symbol_table`) ← `tacgen` ← `main`.
@@ -131,6 +131,14 @@ the arity, and each argument against its parameter; the call keeps the function'
 
 `main.py` wraps all stages in `run_stages`; a `RecursionError` (3000-term chain with `--tree` or `--tree-png`) gives one stderr line and exit 1 (D-037).
 
-`main.py` stage order [BUILT]: tokens, parse tree, symbol tables (`--symbols`), errors. The semantic stage runs when the parser ran and
-there are no Lexical or Syntax errors (D-031); semantic errors do not stop `--symbols` from printing the tables.
+`main.py` stage order [BUILT]: tokens, parse tree, symbol tables (`--symbols`), errors, three-address code (`--tac`). The semantic stage runs when the parser ran and
+there are no Lexical or Syntax errors (D-031); semantic errors do not stop `--symbols` from printing the tables, and any error (Lexical, Syntax, or Semantic) skips `--tac` with `(skipped: compilation errors)`.
+
+## 6. Three-address code generator internals (Phase 6) [BUILT]
+
+`generate(tree)` creates a `TACGenerator` with program-wide counters `temp_count` (`t1, t2, ...`) and `label_count` (`L1, L2, ...`).
+`gen_program` first runs `gen_globals`, which checks `require_tac_name` on every top-level `VarDecl` and, if at least one has an initializer, emits `globals:` followed by each initialized global in source order; then it emits `func <name>: ... endfunc` for each `FunctionDecl` (D-038).
+`require_tac_name` raises `ValueError` if a `VarDecl`, `Assign`, or `Identifier` has `tac_name=None` (D-039).
+`gen_if`, `gen_while`, and `gen_for` follow the exact SPEC section 11 shapes and allocate their own labels in SPEC-shape order before generating nested statements so outer labels get lower numbers than inner labels (D-039).
+`gen_expr` returns `node.value` for `Literal` and `require_tac_name(node)` for `Identifier` without allocating a temporary; `gen_unary`, `gen_binary`, and `gen_call_expr` evaluate their operands first, allocate a fresh `tK`, emit the instruction, and return `tK` (`&&` and `||` are plain binary ops per D-005). `gen_binary` walks the left spine iteratively so 800- and 3000-term left-associative chains never hit Python's recursion limit (D-040). `gen_call_expr` and `gen_call_stmt` evaluate all argument expressions before emitting `param` instructions so nested calls never interleave `param` lines (D-039).
 

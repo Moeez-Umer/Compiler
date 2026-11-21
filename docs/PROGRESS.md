@@ -11,13 +11,17 @@ Deadline: Dec 5, 2026. Tick a phase only after the user has verified it.
 - [~] Phase 4: Symbol table (Nov 25) - committed (`d43c03b`), tag `phase-4` (per `git log`); box left `[~]` until you confirm verification
 - [~] Phase 5: Semantic analyzer (Nov 26 to 29)
   - [~] 5a: scopes, declarations, expression typing - committed (`e515e18`, tag `phase-5a`, per `git log`); box left `[~]` until you confirm verification
-  - [~] 5b: callee, arity and argument types, return checks, missing return - built, awaiting your verification and commit (not committed)
-- [ ] Phase 6: Three-address code generator (Nov 30 to Dec 1)
+  - [~] 5b: callee, arity and argument types, return checks, missing return - committed (`f40c71c`, tag `phase-5b`, per `git log`); box left `[~]` until you confirm verification
+- [~] Phase 6: Three-address code generator (Nov 30 to Dec 1) - built, awaiting your verification and commit (not committed)
 - [ ] Phase 7: CLI integration and output polish (Dec 1 to 2)
 - [ ] Phase 8: Test suite, hardening, clean-clone check (Dec 2 to 3)
 - [ ] Phase 9: Report and viva prep (Dec 3 to 4)
 
 ## Open issues
+
+- Phase 6 (D-038): assignments and initialized declarations always emit a copy instruction (`t2 = a + t1`, then `x = t2`), and `else-if` chains preserve stacked closing labels (`L6:`, `L4:`, `L2:`) without peephole merging (optimization is out of scope, SPEC section 15).
+- Phase 6 (D-039): `generate(tree)` raises `ValueError` if any `VarDecl`, `Assign`, or `Identifier` has `tac_name=None` (no silent fallback to `node.name`). Notice also that because `semantic.py` assigns `tac_name` from a program-wide `used_names` set (D-029), a local variable whose name appeared as a parameter in an earlier function gets `name_1` (observed in `tests/golden/calls.tac`: `a_1`, `b_1` in `main` after `combine(int a, int b)`).
+- Phase 6 (D-040): because `tokenize`, `parse_binary_level`, `type_binary`, and `gen_binary` all use iterative left-spine loops, a 3000-term `1 + 1 + ... + 1` chain run with `--tac` alone succeeds (exit 0); running it with `--tree --tac` hits `tree_to_text`'s recursion limit and exits 1 with the one-line error from D-037.
 
 - Phase 5b (D-035): missing return is strict: an if/else where BOTH branches return, a trailing `{ return 1; }` block, and a trailing loop with a return all still report `Missing return`.
 - Phase 5b (D-036): after an arity error the per-argument type check is skipped (one mistake, one message); a call to a variable has type `error`.
@@ -44,13 +48,69 @@ Deadline: Dec 5, 2026. Tick a phase only after the user has verified it.
 
 - Phase 5b MUST items: all done in 5b (see D-033 to D-037); `test_5b_not_checked_yet` was deleted.
 - Parser (later, needs approval): store the NAME position on `VarDecl` and `Param` so declaration errors can point at the name instead of the type keyword (D-030).
-- Phase 6: decide whether function names like `t1`/`L1` need renaming in TAC (D-029).
-- Phase 7: the parser currently only runs with `--tree`/`--tree-png`; make it part of the default pipeline.
+- Phase 7: the parser currently only runs with `--tree`/`--tree-png`/`--symbols`/`--tac`; make it part of the default pipeline.
 - Phase 7: replace the Phase 1 flag handling in `main.py` (D-015); no flag must mean `--all`.
-- Phase 8: `test_programs.py` should run `tests/valid` and `tests/invalid` end to end (EXPECT lines are in place for lexical and syntax cases; `test_syntax_errors.py` already checks the syntax ones).
+- Phase 8: `test_programs.py` should run `tests/valid` and `tests/invalid` end to end (EXPECT lines are in place for lexical, syntax, and semantic cases).
 
 ## Next step
 
-Verify Phase 5b yourself: `source .venv/bin/activate && pytest -q`, `python src/main.py tests/valid/spec_sample.sl --symbols`, `python src/main.py tests/invalid/semantic_function_errors.sl --symbols`, `git status`.
-Then commit (`phase-5b: semantic analyzer part 2 (function rules)`) and `git tag phase-5b`.
-Then Phase 6 (three-address code).
+Verify Phase 6 yourself: `source .venv/bin/activate && pytest -q`, `python src/main.py tests/valid/spec_sample.sl --tac`, `python src/main.py tests/golden/nested_loops.sl --tac`, `git status`.
+Then commit (`phase-6: three-address code generator and golden TAC suite`) and `git tag phase-6`.
+Then Phase 7 (CLI integration and output polish).
+
+## Hand-traced golden file walk-through (viva reference)
+
+File: [nested_loops.sl](file:///Users/moeezumer/Documents/smartlang/tests/golden/nested_loops.sl) → [nested_loops.tac](file:///Users/moeezumer/Documents/smartlang/tests/golden/nested_loops.tac)
+
+Source:
+```c
+// EXPECT: OK
+int main() {
+    int total = 0;
+    for (int i = 0; i < 3; i = i + 1) {
+        int j = 0;
+        while (j < 2) {
+            if (i == j) {
+                total = total + 10;
+            } else {
+                total = total + 1;
+            }
+            j = j + 1;
+        }
+    }
+    return total;
+}
+```
+
+Step-by-step trace through `TACGenerator`:
+1. **`gen_globals(tree.items)`**: no top-level `VarDecl` exists, so `globals:` is not emitted.
+2. **`gen_function(main)`**: emits `func main:` at column 0.
+3. **`int total = 0;`** (`gen_var_decl`): `Literal("0")` returns `"0"` (no temporary); emits `  total = 0`.
+4. **Outer `for (int i = 0; i < 3; i = i + 1)`** (`gen_for`):
+   - `init` (`int i = 0`): emits `  i = 0`.
+   - Allocates `start_label = L1`, `end_label = L2` **before** generating the condition, body, or update (D-039).
+   - Emits `L1:`.
+   - `condition` (`i < 3`): `gen_binary` allocates `t1`, emits `  t1 = i < 3`, returns `"t1"`.
+   - Emits `  ifFalse t1 goto L2`.
+5. **Outer `for` body**:
+   - `int j = 0;`: emits `  j = 0`.
+   - **Inner `while (j < 2)`** (`gen_while`):
+     - Allocates `start_label = L3`, `end_label = L4` **before** generating its body.
+     - Emits `L3:`.
+     - `condition` (`j < 2`): allocates `t2`, emits `  t2 = j < 2`, returns `"t2"`.
+     - Emits `  ifFalse t2 goto L4`.
+   - **Innermost `if (i == j) { ... } else { ... }`** (`gen_if`):
+     - `condition` (`i == j`): allocates `t3`, emits `  t3 = i == j`, returns `"t3"`.
+     - Allocates `else_label = L5`, `end_label = L6`.
+     - Emits `  ifFalse t3 goto L5`.
+     - `then_block` (`total = total + 10;`): allocates `t4`, emits `  t4 = total + 10`, then `  total = t4`.
+     - Emits `  goto L6` to jump over the `else` branch.
+     - Emits `L5:`.
+     - `else_branch` (`total = total + 1;`): allocates `t5`, emits `  t5 = total + 1`, then `  total = t5`.
+     - Emits `L6:`.
+   - **`j = j + 1;`** (end of `while` body): allocates `t6`, emits `  t6 = j + 1`, then `  j = t6`.
+   - End of `gen_while`: emits `  goto L3`, then `L4:`.
+6. **Outer `for` update and back-edge**:
+   - `update` (`i = i + 1`): allocates `t7`, emits `  t7 = i + 1`, then `  i = t7`.
+   - Emits `  goto L1`, then `L2:`.
+7. **`return total;`** and end of function: emits `  return total`, then `endfunc` at column 0.

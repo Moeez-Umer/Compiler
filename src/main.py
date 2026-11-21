@@ -1,6 +1,6 @@
 """SmartLang compiler command line (SPEC section 12, interfaces.md: main.py).
 
-Phase 5b: --tokens, --tree / --tree-png and --symbols exist. Later phases add one stage each (D-007).
+Phase 6: --tokens, --tree / --tree-png, --symbols and --tac exist. Later phases add polish (D-007).
 This is the only module that prints.
 """
 import os
@@ -14,6 +14,7 @@ from src.errors import ErrorCollector  # noqa: E402
 from src.lexer import tokenize  # noqa: E402
 from src.parser import parse  # noqa: E402
 from src.semantic import analyze  # noqa: E402
+from src.tacgen import generate  # noqa: E402
 from src.tokens import Token  # noqa: E402
 from src.tree_export import export_png, tree_to_text  # noqa: E402
 
@@ -21,8 +22,8 @@ EXIT_OK = 0
 EXIT_COMPILE_ERROR = 1
 EXIT_USAGE = 2
 
-KNOWN_FLAGS = {"--tokens", "--tree", "--tree-png", "--symbols"}
-USAGE = "usage: python src/main.py prog.sl [--tokens] [--tree] [--tree-png PATH] [--symbols]"
+KNOWN_FLAGS = {"--tokens", "--tree", "--tree-png", "--symbols", "--tac"}
+USAGE = "usage: python src/main.py prog.sl [--tokens] [--tree] [--tree-png PATH] [--symbols] [--tac]"
 
 
 def format_token_table(tokens: list[Token]) -> str:
@@ -84,6 +85,7 @@ def run_stages(source: str, flags: set[str], png_path: str | None) -> int:
         print(error.format())
     if not errors.has_errors():
         print("(none)")
+    run_tac_stage(tree, flags, errors)
     if tree is not None and "--tree-png" in flags:
         if not write_png(tree, png_path):
             return EXIT_USAGE
@@ -92,7 +94,23 @@ def run_stages(source: str, flags: set[str], png_path: str | None) -> int:
 
 def wants_tree(flags: set[str]) -> bool:
     """True if any requested output needs the parser (and so the semantic stage)."""
-    return bool(flags & {"--tree", "--tree-png", "--symbols"})
+    return bool(flags & {"--tree", "--tree-png", "--symbols", "--tac"})
+
+
+def run_tac_stage(tree, flags: set[str], errors: ErrorCollector) -> None:
+    """Print `== THREE-ADDRESS CODE ==` when `--tac` is requested (SPEC sections 11 and 12).
+
+    TAC is generated ONLY when there are zero errors; otherwise one skip line is printed.
+    """
+    if "--tac" not in flags:
+        return
+    print()
+    print("== THREE-ADDRESS CODE ==")
+    if tree is None or errors.has_errors():
+        print("(skipped: compilation errors)")
+        return
+    lines = generate(tree)
+    print("\n".join(lines) if lines else "(none)")
 
 
 def run_semantic_stage(tree, flags: set[str], errors: ErrorCollector) -> None:

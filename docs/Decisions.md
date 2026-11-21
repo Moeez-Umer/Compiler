@@ -523,3 +523,47 @@ Changes to SPEC.md or frozen interfaces must be logged here.
 - **Context**: with a 3000-term `1+1+...` chain, `--tree` crashed with a traceback (recursive `tree_to_text`). `--tree-png` exited 2: `RecursionError` is a subclass of `RuntimeError`, so `write_png` caught it as a Graphviz failure, printed the terse `error: maximum recursion depth exceeded` and returned the usage exit code 2 (the message was on stderr, so not silent, but unclear and with the wrong code). 800 terms work for both.
 - **Decision** (approved: `main.py` only, `tree_export.py` untouched): `run` wraps `run_stages` in `try/except RecursionError`: one stderr line `error: program is nested too deeply to process (recursion limit exceeded)` and exit 1. `write_png` re-raises `RecursionError` before its `RuntimeError` branch. Exit 2 stays for usage and file errors.
 - **Trade-offs**: (-) output already printed (tokens, errors section) stays; with `--tree-png` the `== ERRORS == (none)` section appears before the failure. A real fix would make `tree_export` iterative (needs approval). Tests: `test_cli_deep_chain_tree_gives_one_line_error`, `test_cli_deep_chain_tree_png_gives_one_line_error`, `test_cli_missing_file_is_still_exit_2`, plus 5a carry-forward tests `test_cli_lexical_errors_only_skip_semantic_stage` and `test_cli_symbols_after_nested_too_deeply`.
+
+## D-038 TAC instruction format, literal rendering, assignment copy, and adjacent labels
+
+- **Context**: SPEC section 11 defines the TAC instruction shapes (`x = y`, `x = y op z`, `x = op y`, `goto L`, `ifFalse x goto L`, `L:`, `param x`, `x = call f, n`, `call f, n`, `return x`, `func name: ... endfunc`, `globals:`), and `interfaces.md` freezes `generate(tree: Program) -> list[str]`. Several formatting details needed pinning before golden tests were written.
+- **Options considered**:
+  1. Write the result of a compound RHS directly into the target variable (`x = a + t1`) vs. always allocate a temporary for every `BinaryOp`/`UnaryOp`/`Call` and emit a separate copy (`t2 = a + t1` then `x = t2`).
+  2. Emit a dummy instruction for uninitialized declarations (`int x;`) vs. emit nothing.
+  3. Collapse adjacent labels at the end of an `else-if` chain (`L6:` followed by `L4:` and `L2:`) vs. preserve the exact nested `if/else` SPEC shape.
+- **Decision** (approved):
+  - Every `generate(tree)` element is a single line with no trailing newline and no blank lines between sections. `globals:`, `func <name>:`, `endfunc`, and `<L>:` sit at column 0; all instructions are indented two spaces.
+  - Unary instructions keep the space shown in SPEC section 11 (`x = op y`, e.g. `  t1 = - a`, `  t2 = ! flag`).
+  - Leaves (`Literal`, `Identifier`) return their operand string directly without allocating a temporary (`Literal.value` is emitted verbatim for `int`, `float`, single-quoted `char` with escapes, and `true`/`false`). Every `BinaryOp`, `UnaryOp`, and expression `Call` allocates a fresh temporary `tK`, and `Assign` / initialized `VarDecl` emits a copy `  <target> = <rhs>`.
+  - Uninitialized variable declarations (local or global) emit nothing. The `globals:` header is emitted at the start of the output only when at least one top-level `VarDecl` has an initializer, and all initialized globals are emitted there in source order before the first function.
+  - `else if` chains nest the standard `if/else` shape without peephole label merging, so adjacent closing labels (`L6:`, `L4:`, `L2:`) are preserved as-is.
+- **Trade-offs**:
+  - (+) Completely uniform generator: every expression node returns an operand string, every statement emits its SPEC template directly, and no peephole pass has to be explained in the viva.
+  - (-) An assignment of a compound expression uses one extra copy instruction (`t2 = a + t1`, `x = t2`), and `else-if` chains end with stacked labels. Optimization is explicitly out of scope (SPEC section 15).
+
+## D-039 Pre-body label allocation, pre-param argument evaluation, and strict `tac_name` enforcement
+
+- **Context**: Nested loops/branches and nested function calls (`f(a, g(b))`) need deterministic label numbering and non-interleaved `param` emission. Also, D-029 left open whether function names like `t1`/`L1` need renaming in TAC and what `tacgen` should do if `tac_name` is missing.
+- **Options considered**:
+  1. Allocate labels lazily as they are emitted vs. allocate a control-flow statement's labels (`L_else, L_end` or `L_start, L_end`) in SPEC-shape order BEFORE generating its nested blocks/branches.
+  2. Emit `param` immediately after each argument vs. evaluate all argument expressions left-to-right first and then emit all `param` lines right before `call f, n`.
+  3. Fall back to `node.name` when `node.tac_name is None` vs. raise `ValueError`.
+- **Decision** (approved):
+  - `gen_if`, `gen_while`, and `gen_for` allocate their own labels in SPEC-shape order before generating their nested body/branch statements, so outer constructs always receive lower label numbers than inner constructs.
+  - `gen_call_expr` and `gen_call_stmt` evaluate `[self.gen_expr(arg) for arg in args]` first, then emit `  param <arg>` for each evaluated operand immediately before `call <name>, <n>`.
+  - `require_tac_name` raises `ValueError` whenever `tac_name` is `None` or empty on a `VarDecl` (including uninitialized globals), `Assign`, or `Identifier` — no silent fallback to `node.name`.
+  - Function names keep their source name in TAC: because labels end with `:`, function headers start with `func `, and calls use `call <name>, <n>`, a function named `t1` or `L1` cannot collide syntactically with temporaries or labels.
+- **Trade-offs**:
+  - (+) Outer-before-inner label numbering makes nested control flow easy to trace by hand; evaluating call arguments before `param` prevents `param` interleaving on `f(a, g(b))`; strict `tac_name` checking catches any unanalyzed AST immediately.
+  - (-) Callers of `generate(tree)` in tests must run `analyze(tree, errors)` first (which is already the documented precondition in `interfaces.md`).
+
+## D-040 Iterative left-spine loop in `gen_binary` and `--tac` CLI behavior
+
+- **Context**: Requirement 4 requires an 800-term `1 + 1 + ...` chain to produce correct TAC without deep recursion, and a 3000-term chain through the CLI to never crash with a traceback.
+- **Decision** (approved):
+  - `gen_binary` collects the left spine of consecutive `BinaryOp` nodes in a `while isinstance(current, BinaryOp)` loop and emits instructions in `reversed(spine)` order, matching `type_binary` in `semantic.py` (D-032).
+  - Because `tokenize`, `parse_binary_level`, `type_binary`, and `gen_binary` all use iterative loops down the left spine, a 3000-term `1 + 1 + ... + 1` chain run with `--tac` alone succeeds cleanly (3000 TAC addition lines, exit 0). Running the same 3000-term chain with `--tree --tac` hits the recursion limit inside `tree_to_text` (`tree_export.py`, out of scope) and is caught by `main.py`'s existing `RecursionError` handler (D-037), printing the single line `error: program is nested too deeply to process (recursion limit exceeded)` to stderr and exiting 1.
+  - In `main.py`, `--tac` is added to `KNOWN_FLAGS`, `USAGE`, and `wants_tree`. After `== ERRORS ==`, `run_tac_stage` prints `== THREE-ADDRESS CODE ==` followed by `(skipped: compilation errors)` when `errors.has_errors()` is true, `(none)` when `generate(tree)` returns an empty list, or the joined TAC lines otherwise.
+- **Trade-offs**:
+  - (+) Left-associative expression chains of thousands of terms use `O(1)` Python call-stack depth in `tacgen.py`.
+  - (-) Deeply right-nested expressions (e.g. 900 stacked unary `-` operators) remain recursive; `semantic.py` catches `RecursionError` and reports `Program is nested too deeply to analyze`, causing `--tac` to print `(skipped: compilation errors)` and exit 1.

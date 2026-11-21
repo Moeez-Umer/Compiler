@@ -586,3 +586,71 @@ Changes to SPEC.md or frozen interfaces must be logged here.
 - **Context**: In Phase 2 `--tree-png` printed `PNG written: PATH` to stdout, so stdout differed with and without the flag; failures differed (D-019 exit 2, D-037 exit 1) and could stop the output.
 - **Decision** (approved by the user): the PNG is written AFTER the sections are printed. Success prints one line `wrote <path>` to STDERR, so stdout is identical with and without `--tree-png`. A failure prints one line `error: ...` to stderr and never hides a section: exit 1 when the tree is too deep to draw (`RecursionError`), exit 2 for a Graphviz, `dot` or file problem. The final code is the larger of the compile code and the PNG code (a clean file with a missing `dot` gives 2; a file with errors and a missing `dot` also gives 2). `--tree-png` without a PATH, or followed by another flag, is a usage error (exit 2). Messages are collapsed to one line.
 - **Trade-offs**: (+) stdout can be diffed or piped without caring about the PNG. (-) the "wrote" confirmation is on stderr, easy to miss in a terminal that merges nothing but still shows both; (-) a PATH that starts with `-` cannot be used.
+
+## D-044 Phase 8 end-to-end program test suite, TAC structural verifier, and `edge_comments_only.sl`
+
+- **Context**: SPEC section 13 requires `tests/test_programs.py` to run every `.sl` file in `tests/valid/` and `tests/invalid/` (plus `tests/golden/`) through the full pipeline, verifying `// EXPECT: OK` on valid files and exact `// EXPECT: <Kind> <line> <message substring>` matching on invalid files.
+- **Decision**:
+  - `tests/pipeline_helper.py` calls `tokenize`, `parse`, `analyze`, and `generate` directly (without importing `run_pipeline` from `src.main`) using the SPEC section 9 gating policy.
+  - `match_errors` pairs `// EXPECT:` lines with reported `CompilerError`s via maximum bipartite matching (augmenting paths) so multiple errors on the same line or in different order cannot cause a false mismatch, while still requiring a strict one-to-one bijection (no unmatched EXPECT line, no unexpected extra error).
+  - `check_tac` verifies TAC structural well-formedness on every error-free run: balanced `func`/`endfunc` with no nesting, every label defined at most once, every `goto`/`ifFalse` target defined, and every temporary `tK` assigned before it is read.
+  - All 9 existing `tests/valid/*.sl`, 82 existing `tests/invalid/*.sl`, and 9 `tests/golden/*.sl` already carried valid `// EXPECT:` headers; 4 new edge-case `.sl` files were added (`tests/valid/edge_comments_only.sl`, `tests/valid/edge_tabs.sl`, `tests/invalid/edge_empty_function_body.sl`, `tests/invalid/edge_empty_function_body_literal.sl`). Because `edge_comments_only.sl` intentionally has 0 tokens before `EOF` and 0 functions (empty TAC), the two earlier-phase tests that asserted `len(tokens) > 10` (`test_lexer.py`) and `len(tac) > 0` (`test_tacgen.py`) exclude `edge_comments_only.sl`, while `test_programs.py` and `test_edge_cases.py` test it end-to-end.
+- **Trade-offs**:
+  - (+) Every `.sl` file across `valid`, `invalid`, and `golden` is audited for header format and exact pipeline behavior in one place.
+  - (-) Two earlier-phase glob lists had to filter out `edge_comments_only.sl` because their assertions assumed non-empty programs.
+
+## D-045 UTF-8 BOM and line-ending (`CRLF`, lone `\r`, missing trailing newline) behavior
+
+- **Context**: Phase 8 tests files with a leading UTF-8 BOM (`\xef\xbb\xbf` / `U+FEFF`), an interior `U+FEFF`, Windows `CRLF` (`\r\n`), a lone `\r`, and no trailing newline. Currently `read_source` in `src/main.py` opens files with `encoding="utf-8", newline=""`, so a leading UTF-8 BOM reaches the lexer as `U+FEFF` at Line 1, Col 1 (`[Lexical Error] Line 1, Col 1: Invalid character '\ufeff'`), shifting every column on line 1 by 1.
+- **Options considered**:
+  1. Treat `U+FEFF` as whitespace inside `src/lexer.py`.
+  2. Change `encoding="utf-8"` to `encoding="utf-8-sig"` in `src/main.py:read_source` (1-line change) so a leading BOM is stripped when reading a file, while `U+FEFF` anywhere in the middle of the file remains an invalid character.
+  3. Keep `encoding="utf-8"` and reject files with a leading BOM.
+- **Decision** (approved and applied):
+  - Option 2 was approved and applied: `read_source` in `src/main.py` opens files with `encoding="utf-8-sig", newline=""`. Both leading-BOM tests in `tests/test_edge_cases.py` (`test_bom_at_start_does_not_shift_columns_on_line_1`, `test_bom_only_file_is_an_empty_program`) pass without `xfail`.
+  - `CRLF` (`\r\n`) works both through `read_source` (`newline=""`) and directly through `tokenize`: `\r` is skipped as horizontal whitespace and `\n` increments `line` and resets `col` to 1, so `CRLF` produces identical token and error positions to `LF`.
+  - A lone `\r` (classic Mac OS 9 line ending, not followed by `\n`) is treated as horizontal whitespace on the current line (D-014: only `\n` ends a line); this is pinned by `test_lone_cr_is_whitespace_not_a_line_break`.
+- **Trade-offs**:
+  - (+) `utf-8-sig` strips at most one leading BOM at the file boundary without changing line-1 column numbers, while keeping an interior `U+FEFF` (or a second consecutive BOM) a lexical error.
+  - (-) Calling `tokenize("\ufeff...")` directly in memory still reports a lexical error because BOM stripping is a file-decoding responsibility (`read_source`), not a lexical rule.
+
+## D-046 Full-pipeline fuzzing design (`tests/test_fuzz_pipeline.py`)
+
+- **Context**: Phase 8 requires full-pipeline fuzzing with (a) random raw text and (b) at least 3000 mutated valid programs with a fixed seed, checking that no exception escapes, no case hangs, errors have valid kinds and `line >= 1`, errors are sorted, and error-free runs produce well-formed TAC.
+- **Decision**:
+  - Isolated `random.Random(426)` generator (never touches global `random` state): 1500 random raw-text inputs and 4000 source-level mutants of `tests/valid/*.sl` and `tests/golden/*.sl`.
+  - Mutations (`delete`, `duplicate`, `swap`, `operator`, `type`, 800 of each) edit the original source string at exact token byte spans computed from `(line, col)`, preserving original line breaks, comments, and column alignment. Operator and type replacements draw from compatible groups 70% of the time so a large share of mutants survive parsing and exercise `semantic.py` and `tacgen.py`.
+  - Observed mutant stage distribution (seed 426, 4000 mutants): `lexical: 35`, `syntax: 2702`, `semantic: 816`, `tac: 447` (all 4000 pass all invariants; 0 bugs found in `src/`). Minimum thresholds are enforced in the test so future edits cannot silently stop exercising `semantic` or `tacgen`.
+  - Per-case timeout uses `signal.setitimer(signal.ITIMER_VIRTUAL, 2.0)` (`SIGVTALRM`), which is independent of `conftest.py`'s `SIGALRM` per-test alarm and prints the offending input to stderr if a case ever hangs.
+- **Trade-offs**:
+  - (+) Source-offset mutations keep realistic line/column numbers; `SIGVTALRM` does not cancel `conftest.py`'s outer `SIGALRM`; verified by catching two deliberately injected bugs (one in `tacgen.py`, one in `semantic.py`) before restoring `src/`.
+  - (-) Fuzzing checks structural invariants and TAC well-formedness, not semantic oracle equivalence.
+
+---
+
+## Known limitations
+
+One-line summary of every limitation logged across Phases 1–8:
+
+- **No short-circuit boolean TAC (D-005)**: `&&` and `||` are emitted as plain binary TAC instructions, so both operands are always evaluated.
+- **Glued numbers and lone dot (D-012)**: A run starting with a digit (or `.` + digit) followed by letters/dots such as `3.foo` is scanned as one `INVALID` token (`glued to letters`), while a lone `.` is an `Invalid character '.'`.
+- **Unterminated char literal and block comment extent (D-013)**: An unterminated char literal swallows up to the end of its line, and an unterminated `/*` comment swallows the remainder of the file.
+- **Tab width, ASCII identifiers, and lone `\r` (D-014, D-045)**: Tabs count as 1 column, non-ASCII letters outside comments are lexical errors, and only `\n` ends a line (a lone `\r` is treated as horizontal whitespace on the same line).
+- **Suppressed syntax error right after an `INVALID` token (D-020, D-023)**: To avoid cascading noise from a vanished lexical token, one genuine syntax error immediately following a skipped `INVALID` token is hidden until the lexical error is fixed.
+- **Same-line junk after a missing semicolon (D-024)**: The forgotten-`;` insertion heuristic only fires when the next token is on a new line, a statement keyword, `}`, or `EOF`; same-line junk still triggers panic-mode skipping and drops the statement.
+- **Partial parse tree after syntax errors is display-only (D-021, D-025)**: After a syntax error the partial tree drops failed statements, loses the control node of a broken `if`/`while`/`for` header (keeping its body as a plain `Block`), loses parameters before a function-header error, and keeps a stray `else` block.
+- **Parenthesis nesting limit about 70 (D-025, D-046)**: Because each parenthesized expression recurses through the seven precedence levels in `parser.py`, nesting beyond ~64–70 levels of `(` hits Python's recursion limit and reports `Program is nested too deeply`.
+- **Brace nesting limit about 330 (D-025, D-046)**: Nested `{ ... }` blocks recurse through `parse_block` / `parse_statement` and hit Python's recursion limit at ~325–330 levels, reporting `Program is nested too deeply`.
+- **`tree_export` is recursive (D-037, D-040, D-042)**: `tree_to_text` and `tree_to_dot` traverse the AST recursively, so a left-associative chain of ~3000 terms (which lexes, parses, type-checks, and generates TAC iteratively) is skipped by `--tree` (`(skipped: nested too deeply to print)`) and rejected by `--tree-png` with exit code 1.
+- **Right-nested expression depth in semantic analysis and TAC (D-032, D-040)**: Left spines of binary operators are walked iteratively, but ~900 right-nested operators (e.g., stacked unary `-`) hit Python's recursion limit and report `Program is nested too deeply to analyze`.
+- **Global variable top-down visibility (D-028)**: Functions are collected in pass 1 and visible everywhere, whereas a global variable is visible only after its declaration in source order.
+- **Program-wide `tac_name` numbering (D-029, D-039)**: `semantic.py` allocates `tac_name`s from one program-wide set so a local variable whose name appeared in an earlier function gets a suffixed name (`a_1`), while function names are never renamed.
+- **Declaration error column points at the leading keyword (D-030, D-033)**: `VarDecl` and `Param` store the position of their first token (`const` or the type keyword) rather than the identifier token, so declaration diagnostics report the start of the declaration.
+- **Single-error cascade suppression per expression (D-031)**: Once a sub-expression is typed as `error`, outer operators on it produce `error` silently, so a second independent type mistake inside the same expression is not reported in the same run.
+- **Strict syntactic missing-return rule (D-035)**: The last top-level statement of every function body must literally be a `return` statement; an `if`/`else` that returns in both branches still reports `Missing return` (control-flow reachability is out of scope, SPEC section 15).
+- **Per-argument type checks skipped on arity mismatch (D-036)**: When a function call passes the wrong number of arguments, only the arity error is reported and individual argument types are not compared against parameters.
+- **Unoptimized TAC copies and stacked labels (D-038)**: Every compound expression assignment emits an intermediate temporary copy (`t1 = a + b`, `x = t1`), and `else-if` chains leave adjacent closing labels (`L6:`, `L4:`) unmerged (optimization is out of scope, SPEC section 15).
+- **`--tree-png` path cannot start with `-` (D-043)**: `parse_args` treats any argument starting with `-` after `--tree-png` as a missing path (exit code 2).
+- **BOM stripped only at file start by `read_source` (D-045)**: `read_source` strips a single leading UTF-8 BOM (`utf-8-sig`), whereas `U+FEFF` inside a file (or passed directly to `tokenize` in memory) is reported as `Invalid character '\ufeff'`.
+- **Semantic checks out of SPEC scope (SPEC section 8)**: Use of uninitialized variables, unreachable statements after `return`, and division/modulo by literal zero are intentionally not checked.
+

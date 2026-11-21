@@ -1,0 +1,137 @@
+== TOKENS ==
+TYPE        LEXEME  LINE  COL
+KEYWORD     const      2    1
+KEYWORD     int        2    7
+IDENTIFIER  LIMIT      2   11
+OPERATOR    =          2   17
+INT_LIT     10         2   19
+DELIMITER   ;          2   21
+KEYWORD     int        4    1
+IDENTIFIER  square     4    5
+DELIMITER   (          4   11
+KEYWORD     int        4   12
+IDENTIFIER  x          4   16
+DELIMITER   )          4   17
+DELIMITER   {          4   19
+KEYWORD     return     5    5
+IDENTIFIER  x          5   12
+OPERATOR    *          5   14
+IDENTIFIER  x          5   16
+DELIMITER   ;          5   17
+DELIMITER   }          6    1
+KEYWORD     int        8    1
+IDENTIFIER  main       8    5
+DELIMITER   (          8    9
+DELIMITER   )          8   10
+DELIMITER   {          8   12
+KEYWORD     int        9    5
+IDENTIFIER  a          9    9
+OPERATOR    =          9   11
+FLOAT_LIT   2.5        9   13
+DELIMITER   ;          9   16
+KEYWORD     int       10    5
+IDENTIFIER  b         10    9
+OPERATOR    =         10   11
+IDENTIFIER  ghost     10   13
+OPERATOR    +         10   19
+INT_LIT     1         10   21
+DELIMITER   ;         10   22
+KEYWORD     bool      11    5
+IDENTIFIER  flag      11   10
+OPERATOR    =         11   15
+IDENTIFIER  a         11   17
+DELIMITER   ;         11   18
+KEYWORD     if        12    5
+DELIMITER   (         12    8
+IDENTIFIER  a         12    9
+OPERATOR    +         12   11
+INT_LIT     1         12   13
+DELIMITER   )         12   14
+DELIMITER   {         12   16
+DELIMITER   }         13    5
+IDENTIFIER  LIMIT     14    5
+OPERATOR    =         14   11
+INT_LIT     5         14   13
+DELIMITER   ;         14   14
+KEYWORD     int       15    5
+IDENTIFIER  c         15    9
+OPERATOR    =         15   11
+IDENTIFIER  square    15   13
+DELIMITER   (         15   19
+INT_LIT     1         15   20
+DELIMITER   ,         15   21
+INT_LIT     2         15   23
+DELIMITER   )         15   24
+DELIMITER   ;         15   25
+KEYWORD     return    16    5
+IDENTIFIER  a         16   12
+DELIMITER   ;         16   13
+DELIMITER   }         17    1
+EOF                   18    1
+
+== PARSE TREE ==
+Program
+  VarDecl const int LIMIT
+    Literal 10 (int)
+  FunctionDecl int square
+    Param int x
+    Block
+      Return
+        BinaryOp *
+          Identifier x
+          Identifier x
+  FunctionDecl int main
+    Block
+      VarDecl int a
+        Literal 2.5 (float)
+      VarDecl int b
+        BinaryOp +
+          Identifier ghost
+          Literal 1 (int)
+      VarDecl bool flag
+        Identifier a
+      If
+        BinaryOp +
+          Identifier a
+          Literal 1 (int)
+        Block
+      Assign LIMIT
+        Literal 5 (int)
+      VarDecl int c
+        Call square
+          Literal 1 (int)
+          Literal 2 (int)
+      Return
+        Identifier a
+
+== SYMBOL TABLES ==
+Scope 0 (global)
+  NAME    TYPE  KIND   LEVEL  LINE  PARAMS
+  square  int   func       0     4  (int x)
+  main    int   func       0     8  ()
+  LIMIT   int   const      0     2  -
+
+Scope 1 (function square)
+  NAME  TYPE  KIND   LEVEL  LINE  PARAMS
+  x     int   param      1     4  -
+
+Scope 2 (function main)
+  NAME  TYPE  KIND  LEVEL  LINE  PARAMS
+  a     int   var       1     9  -
+  b     int   var       1    10  -
+  flag  bool  var       1    11  -
+  c     int   var       1    15  -
+
+Scope 3 (block)
+  (empty)
+
+== ERRORS ==
+[Semantic Error] Line 9, Col 5: Cannot assign float to int variable 'a'
+[Semantic Error] Line 10, Col 13: Undeclared identifier 'ghost'
+[Semantic Error] Line 11, Col 5: Cannot assign int to bool variable 'flag'
+[Semantic Error] Line 12, Col 11: Condition of 'if' must be bool, found int
+[Semantic Error] Line 14, Col 5: Cannot assign to constant 'LIMIT'
+[Semantic Error] Line 15, Col 13: Function 'square' expects 1 argument, found 2
+
+== THREE-ADDRESS CODE ==
+(skipped: compilation errors)

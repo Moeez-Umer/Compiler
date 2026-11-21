@@ -316,7 +316,9 @@ def test_never_crashes_on_odd_input(source):
 
 ROOT = Path(__file__).resolve().parent.parent
 INVALID_FILES = sorted((ROOT / "tests" / "invalid").glob("lexical_*.sl"))
-VALID_FILES = sorted((ROOT / "tests" / "valid").glob("*.sl")) + [ROOT / "samples" / "valid_all_tokens.sl"]
+# edge_comments_only.sl has no code on purpose (Phase 8); it is checked by test_programs.py and test_edge_cases.py.
+VALID_FILES = [p for p in sorted((ROOT / "tests" / "valid").glob("*.sl")) if p.name != "edge_comments_only.sl"] + [
+    ROOT / "samples" / "valid_all_tokens.sl"]
 
 
 def read_expectations(text):

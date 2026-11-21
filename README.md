@@ -277,3 +277,14 @@ Scope 8 (block)
 == ERRORS ==
 (none)
 ```
+
+## Report assets
+
+From the repo root, with `.venv` active:
+
+```bash
+python report/make_test_table.py   # writes report/assets/test_table.md
+python report/make_assets.py       # writes parse-tree PNGs, CLI captures (.txt) and spec_program.tac
+python report/code_review.py       # prints the Rule 10 line-length and docstring audit of src/
+```
+

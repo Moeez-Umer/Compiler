@@ -442,7 +442,10 @@ def test_golden_files_exact_match(sl_path: Path):
     assert actual_lines == expected_lines
 
 
-@pytest.mark.parametrize("sl_path", sorted(VALID_DIR.glob("*.sl")), ids=lambda p: p.name)
+# edge_comments_only.sl has no functions on purpose (Phase 8): its TAC is empty, see test_edge_cases.py.
+@pytest.mark.parametrize(
+    "sl_path", [p for p in sorted(VALID_DIR.glob("*.sl")) if p.name != "edge_comments_only.sl"],
+    ids=lambda p: p.name)
 def test_all_valid_programs_generate_nonempty_tac(sl_path: Path):
     """Every program in `tests/valid/` generates non-empty TAC without crashing."""
     tac = compile_to_tac(sl_path.read_text(encoding="utf-8"))

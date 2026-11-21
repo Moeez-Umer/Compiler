@@ -41,6 +41,7 @@ class Program(Node):
     items: list[Node]
 
     def children(self) -> list[Node]:
+        """Top-level declarations and functions in source order."""
         return list(self.items)
 
 
@@ -53,6 +54,7 @@ class Param(Node):
     tac_name: str | None = annotation()
 
     def label(self) -> str:
+        """Tree label for a parameter node (`Param <type> <name>`)."""
         return f"Param {self.type_name} {self.name}"
 
 
@@ -67,6 +69,7 @@ class Block(Node):
     scope_id: int | None = annotation()
 
     def children(self) -> list[Node]:
+        """Statements inside the block in source order."""
         return list(self.statements)
 
 
@@ -81,9 +84,11 @@ class FunctionDecl(Node):
     scope_id: int | None = annotation()
 
     def label(self) -> str:
+        """Tree label for a function declaration (`FunctionDecl <type> <name>`)."""
         return f"FunctionDecl {self.return_type} {self.name}"
 
     def children(self) -> list[Node]:
+        """Parameters followed by the function body block."""
         return [*self.params, self.body]
 
 
@@ -98,10 +103,12 @@ class VarDecl(Node):
     tac_name: str | None = annotation()
 
     def label(self) -> str:
+        """Tree label for a variable or constant declaration (`VarDecl [const ]<type> <name>`)."""
         const = "const " if self.is_const else ""
         return f"VarDecl {const}{self.type_name} {self.name}"
 
     def children(self) -> list[Node]:
+        """Single initializer expression child when present, else empty."""
         return [self.init] if self.init is not None else []
 
 
@@ -116,9 +123,11 @@ class Assign(Node):
     tac_name: str | None = annotation()
 
     def label(self) -> str:
+        """Tree label for an assignment (`Assign <name>`)."""
         return f"Assign {self.name}"
 
     def children(self) -> list[Node]:
+        """Assigned value expression."""
         return [self.value]
 
 
@@ -131,6 +140,7 @@ class If(Node):
     else_branch: Node | None
 
     def children(self) -> list[Node]:
+        """Condition, then-block, and optional else-branch in source order."""
         parts = [self.condition, self.then_block]
         if self.else_branch is not None:
             parts.append(self.else_branch)
@@ -145,6 +155,7 @@ class While(Node):
     body: Block
 
     def children(self) -> list[Node]:
+        """Loop condition and body block."""
         return [self.condition, self.body]
 
 
@@ -159,6 +170,7 @@ class For(Node):
     scope_id: int | None = annotation()
 
     def children(self) -> list[Node]:
+        """Present parts of `(init?, condition, update?, body)` in source order."""
         parts = []
         if self.init is not None:
             parts.append(self.init)
@@ -176,6 +188,7 @@ class Return(Node):
     value: Node
 
     def children(self) -> list[Node]:
+        """Returned expression."""
         return [self.value]
 
 
@@ -186,6 +199,7 @@ class CallStmt(Node):
     call: "Call"
 
     def children(self) -> list[Node]:
+        """Underlying `Call` node."""
         return [self.call]
 
 
@@ -201,9 +215,11 @@ class BinaryOp(Node):
     expr_type: str | None = annotation()
 
     def label(self) -> str:
+        """Tree label for a binary operator (`BinaryOp <op>`)."""
         return f"BinaryOp {self.op}"
 
     def children(self) -> list[Node]:
+        """Left and right operand expressions."""
         return [self.left, self.right]
 
 
@@ -216,9 +232,11 @@ class UnaryOp(Node):
     expr_type: str | None = annotation()
 
     def label(self) -> str:
+        """Tree label for a unary operator (`UnaryOp <op>`)."""
         return f"UnaryOp {self.op}"
 
     def children(self) -> list[Node]:
+        """Single operand expression."""
         return [self.operand]
 
 
@@ -231,6 +249,7 @@ class Literal(Node):
     expr_type: str | None = annotation()
 
     def label(self) -> str:
+        """Tree label for a literal (`Literal <value> (<type>)`)."""
         return f"Literal {self.value} ({self.type_name})"
 
 
@@ -243,6 +262,7 @@ class Identifier(Node):
     tac_name: str | None = annotation()
 
     def label(self) -> str:
+        """Tree label for an identifier (`Identifier <name>`)."""
         return f"Identifier {self.name}"
 
 
@@ -255,7 +275,9 @@ class Call(Node):
     expr_type: str | None = annotation()
 
     def label(self) -> str:
+        """Tree label for a function call (`Call <name>`)."""
         return f"Call {self.name}"
 
     def children(self) -> list[Node]:
+        """Argument expressions in source order."""
         return list(self.args)

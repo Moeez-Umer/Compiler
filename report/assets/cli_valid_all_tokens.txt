@@ -1,0 +1,339 @@
+== TOKENS ==
+TYPE        LEXEME  LINE  COL
+KEYWORD     const      4    1
+KEYWORD     int        4    7
+IDENTIFIER  LIMIT      4   11
+OPERATOR    =          4   17
+INT_LIT     10         4   19
+DELIMITER   ;          4   21
+KEYWORD     const      5    1
+KEYWORD     float      5    7
+IDENTIFIER  RATE       5   13
+OPERATOR    =          5   18
+FLOAT_LIT   2.5        5   20
+DELIMITER   ;          5   23
+KEYWORD     int        7    1
+IDENTIFIER  square     7    5
+DELIMITER   (          7   11
+KEYWORD     int        7   12
+IDENTIFIER  x          7   16
+DELIMITER   )          7   17
+DELIMITER   {          7   19
+KEYWORD     return     8    5
+IDENTIFIER  x          8   12
+OPERATOR    *          8   14
+IDENTIFIER  x          8   16
+DELIMITER   ;          8   17
+DELIMITER   }          9    1
+KEYWORD     bool      11    1
+IDENTIFIER  check     11    6
+DELIMITER   (         11   11
+KEYWORD     char      11   12
+IDENTIFIER  c         11   17
+DELIMITER   ,         11   18
+KEYWORD     int       11   20
+IDENTIFIER  n         11   24
+DELIMITER   )         11   25
+DELIMITER   {         11   27
+KEYWORD     return    12    5
+IDENTIFIER  c         12   12
+OPERATOR    ==        12   14
+CHAR_LIT    'a'       12   17
+OPERATOR    &&        12   21
+IDENTIFIER  n         12   24
+OPERATOR    >=        12   26
+INT_LIT     0         12   29
+OPERATOR    ||        12   31
+IDENTIFIER  n         12   34
+OPERATOR    !=        12   36
+INT_LIT     1         12   39
+DELIMITER   ;         12   40
+DELIMITER   }         13    1
+KEYWORD     int       15    1
+IDENTIFIER  main      15    5
+DELIMITER   (         15    9
+DELIMITER   )         15   10
+DELIMITER   {         15   12
+KEYWORD     int       16    5
+IDENTIFIER  total     16    9
+OPERATOR    =         16   15
+INT_LIT     0         16   17
+DELIMITER   ;         16   18
+KEYWORD     char      17    5
+IDENTIFIER  c         17   10
+OPERATOR    =         17   12
+CHAR_LIT    '\n'      17   14
+DELIMITER   ;         17   18
+KEYWORD     char      18    5
+IDENTIFIER  q         18   10
+OPERATOR    =         18   12
+CHAR_LIT    '\''      18   14
+DELIMITER   ;         18   18
+KEYWORD     bool      19    5
+IDENTIFIER  flag      19   10
+OPERATOR    =         19   15
+OPERATOR    !         19   17
+KEYWORD     false     19   18
+DELIMITER   ;         19   23
+KEYWORD     for       20    5
+DELIMITER   (         20    9
+KEYWORD     int       20   10
+IDENTIFIER  i         20   14
+OPERATOR    =         20   16
+INT_LIT     0         20   18
+DELIMITER   ;         20   19
+IDENTIFIER  i         20   21
+OPERATOR    <         20   23
+IDENTIFIER  LIMIT     20   25
+DELIMITER   ;         20   30
+IDENTIFIER  i         20   32
+OPERATOR    =         20   34
+IDENTIFIER  i         20   36
+OPERATOR    +         20   38
+INT_LIT     1         20   40
+DELIMITER   )         20   41
+DELIMITER   {         20   43
+IDENTIFIER  total     21    9
+OPERATOR    =         21   15
+IDENTIFIER  total     21   17
+OPERATOR    +         21   23
+IDENTIFIER  square    21   25
+DELIMITER   (         21   31
+IDENTIFIER  i         21   32
+DELIMITER   )         21   33
+OPERATOR    %         21   35
+INT_LIT     3         21   37
+OPERATOR    -         21   39
+INT_LIT     1         21   41
+DELIMITER   ;         21   42
+DELIMITER   }         22    5
+KEYWORD     while     23    5
+DELIMITER   (         23   11
+IDENTIFIER  total     23   12
+OPERATOR    >         23   18
+INT_LIT     100       23   20
+DELIMITER   )         23   23
+DELIMITER   {         23   25
+IDENTIFIER  total     24    9
+OPERATOR    =         24   15
+IDENTIFIER  total     24   17
+OPERATOR    /         24   23
+INT_LIT     2         24   25
+DELIMITER   ;         24   26
+DELIMITER   }         25    5
+KEYWORD     if        26    5
+DELIMITER   (         26    8
+IDENTIFIER  check     26    9
+DELIMITER   (         26   14
+CHAR_LIT    'a'       26   15
+DELIMITER   ,         26   18
+IDENTIFIER  total     26   20
+DELIMITER   )         26   25
+OPERATOR    &&        26   27
+IDENTIFIER  flag      26   30
+DELIMITER   )         26   34
+DELIMITER   {         26   36
+IDENTIFIER  total     27    9
+OPERATOR    =         27   15
+OPERATOR    -         27   17
+IDENTIFIER  total     27   18
+DELIMITER   ;         27   23
+DELIMITER   }         28    5
+KEYWORD     else      28    7
+DELIMITER   {         28   12
+IDENTIFIER  total     29    9
+OPERATOR    =         29   15
+INT_LIT     0         29   17
+DELIMITER   ;         29   18
+DELIMITER   }         30    5
+KEYWORD     return    31    5
+IDENTIFIER  total     31   12
+DELIMITER   ;         31   17
+DELIMITER   }         32    1
+EOF                   33    1
+
+== PARSE TREE ==
+Program
+  VarDecl const int LIMIT
+    Literal 10 (int)
+  VarDecl const float RATE
+    Literal 2.5 (float)
+  FunctionDecl int square
+    Param int x
+    Block
+      Return
+        BinaryOp *
+          Identifier x
+          Identifier x
+  FunctionDecl bool check
+    Param char c
+    Param int n
+    Block
+      Return
+        BinaryOp ||
+          BinaryOp &&
+            BinaryOp ==
+              Identifier c
+              Literal 'a' (char)
+            BinaryOp >=
+              Identifier n
+              Literal 0 (int)
+          BinaryOp !=
+            Identifier n
+            Literal 1 (int)
+  FunctionDecl int main
+    Block
+      VarDecl int total
+        Literal 0 (int)
+      VarDecl char c
+        Literal '\n' (char)
+      VarDecl char q
+        Literal '\'' (char)
+      VarDecl bool flag
+        UnaryOp !
+          Literal false (bool)
+      For
+        VarDecl int i
+          Literal 0 (int)
+        BinaryOp <
+          Identifier i
+          Identifier LIMIT
+        Assign i
+          BinaryOp +
+            Identifier i
+            Literal 1 (int)
+        Block
+          Assign total
+            BinaryOp -
+              BinaryOp +
+                Identifier total
+                BinaryOp %
+                  Call square
+                    Identifier i
+                  Literal 3 (int)
+              Literal 1 (int)
+      While
+        BinaryOp >
+          Identifier total
+          Literal 100 (int)
+        Block
+          Assign total
+            BinaryOp /
+              Identifier total
+              Literal 2 (int)
+      If
+        BinaryOp &&
+          Call check
+            Literal 'a' (char)
+            Identifier total
+          Identifier flag
+        Block
+          Assign total
+            UnaryOp -
+              Identifier total
+        Block
+          Assign total
+            Literal 0 (int)
+      Return
+        Identifier total
+
+== SYMBOL TABLES ==
+Scope 0 (global)
+  NAME    TYPE   KIND   LEVEL  LINE  PARAMS
+  square  int    func       0     7  (int x)
+  check   bool   func       0    11  (char c, int n)
+  main    int    func       0    15  ()
+  LIMIT   int    const      0     4  -
+  RATE    float  const      0     5  -
+
+Scope 1 (function square)
+  NAME  TYPE  KIND   LEVEL  LINE  PARAMS
+  x     int   param      1     7  -
+
+Scope 2 (function check)
+  NAME  TYPE  KIND   LEVEL  LINE  PARAMS
+  c     char  param      1    11  -
+  n     int   param      1    11  -
+
+Scope 3 (function main)
+  NAME   TYPE  KIND  LEVEL  LINE  PARAMS
+  total  int   var       1    16  -
+  c      char  var       1    17  -
+  q      char  var       1    18  -
+  flag   bool  var       1    19  -
+
+Scope 4 (for)
+  NAME  TYPE  KIND  LEVEL  LINE  PARAMS
+  i     int   var       2    20  -
+
+Scope 5 (block)
+  (empty)
+
+Scope 6 (block)
+  (empty)
+
+Scope 7 (block)
+  (empty)
+
+Scope 8 (block)
+  (empty)
+
+== ERRORS ==
+(none)
+
+== THREE-ADDRESS CODE ==
+globals:
+  LIMIT = 10
+  RATE = 2.5
+func square:
+  t1 = x * x
+  return t1
+endfunc
+func check:
+  t2 = c == 'a'
+  t3 = n >= 0
+  t4 = t2 && t3
+  t5 = n != 1
+  t6 = t4 || t5
+  return t6
+endfunc
+func main:
+  total = 0
+  c_1 = '\n'
+  q = '\''
+  t7 = ! false
+  flag = t7
+  i = 0
+L1:
+  t8 = i < LIMIT
+  ifFalse t8 goto L2
+  param i
+  t9 = call square, 1
+  t10 = t9 % 3
+  t11 = total + t10
+  t12 = t11 - 1
+  total = t12
+  t13 = i + 1
+  i = t13
+  goto L1
+L2:
+L3:
+  t14 = total > 100
+  ifFalse t14 goto L4
+  t15 = total / 2
+  total = t15
+  goto L3
+L4:
+  param 'a'
+  param total
+  t16 = call check, 2
+  t17 = t16 && flag
+  ifFalse t17 goto L5
+  t18 = - total
+  total = t18
+  goto L6
+L5:
+  total = 0
+L6:
+  return total
+endfunc

@@ -162,7 +162,7 @@ def write_png(tree: Program, png_path: str | None) -> int:
 def read_source(path: str) -> str | None:
     """Return the file text, or None if it cannot be read as UTF-8 text."""
     try:
-        with open(path, encoding="utf-8", newline="") as handle:
+        with open(path, encoding="utf-8-sig", newline="") as handle:
             return handle.read()
     except (OSError, UnicodeDecodeError) as exc:
         print(f"error: cannot read '{path}': {one_line(exc)}", file=sys.stderr)

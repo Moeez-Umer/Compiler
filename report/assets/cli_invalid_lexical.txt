@@ -1,0 +1,101 @@
+== TOKENS ==
+TYPE        LEXEME  LINE  COL
+KEYWORD     int        2    1
+IDENTIFIER  main       2    5
+DELIMITER   (          2    9
+DELIMITER   )          2   10
+DELIMITER   {          2   12
+KEYWORD     int        3    5
+IDENTIFIER  a          3    9
+OPERATOR    =          3   11
+INT_LIT     5          3   13
+INVALID     @          3   15
+INT_LIT     1          3   17
+DELIMITER   ;          3   18
+KEYWORD     bool       4    5
+IDENTIFIER  b          4   10
+OPERATOR    =          4   12
+KEYWORD     true       4   14
+INVALID     &          4   19
+KEYWORD     false      4   21
+DELIMITER   ;          4   26
+KEYWORD     bool       5    5
+IDENTIFIER  c          5   10
+OPERATOR    =          5   12
+KEYWORD     true       5   14
+INVALID     |          5   19
+KEYWORD     false      5   21
+DELIMITER   ;          5   26
+KEYWORD     float      6    5
+IDENTIFIER  d          6   11
+OPERATOR    =          6   13
+INVALID     3.4.5      6   15
+DELIMITER   ;          6   20
+KEYWORD     float      7    5
+IDENTIFIER  e          7   11
+OPERATOR    =          7   13
+INVALID     3.         7   15
+DELIMITER   ;          7   17
+KEYWORD     float      8    5
+IDENTIFIER  f          8   11
+OPERATOR    =          8   13
+INVALID     .5         8   15
+DELIMITER   ;          8   17
+KEYWORD     int        9    5
+IDENTIFIER  g          9    9
+OPERATOR    =          9   11
+INVALID     9abc       9   13
+DELIMITER   ;          9   17
+KEYWORD     char      10    5
+IDENTIFIER  h         10   10
+OPERATOR    =         10   12
+INVALID     'a;       10   14
+KEYWORD     char      11    5
+IDENTIFIER  i         11   10
+OPERATOR    =         11   12
+INVALID     ''        11   14
+DELIMITER   ;         11   16
+KEYWORD     char      12    5
+IDENTIFIER  j         12   10
+OPERATOR    =         12   12
+INVALID     'ab'      12   14
+DELIMITER   ;         12   18
+KEYWORD     char      13    5
+IDENTIFIER  k         13   10
+OPERATOR    =         13   12
+INVALID     '\q'      13   14
+DELIMITER   ;         13   18
+KEYWORD     int       14    5
+IDENTIFIER  ok        14    9
+OPERATOR    =         14   12
+INT_LIT     42        14   14
+DELIMITER   ;         14   16
+INVALID     /*        15    5
+EOF                   18    1
+
+== PARSE TREE ==
+Program
+  FunctionDecl int main
+    Block
+      VarDecl int ok
+        Literal 42 (int)
+
+== SYMBOL TABLES ==
+(skipped: lexical or syntax errors)
+
+== ERRORS ==
+[Lexical Error] Line 3, Col 15: Invalid character '@'
+[Lexical Error] Line 4, Col 19: Invalid character '&'
+[Lexical Error] Line 5, Col 19: Invalid character '|'
+[Lexical Error] Line 6, Col 15: Malformed number '3.4.5'
+[Lexical Error] Line 7, Col 15: Malformed number '3.'
+[Lexical Error] Line 8, Col 15: Malformed number '.5'
+[Lexical Error] Line 9, Col 13: Number '9abc' is glued to letters
+[Lexical Error] Line 10, Col 14: Unterminated char literal 'a;
+[Lexical Error] Line 11, Col 14: Empty char literal ''
+[Lexical Error] Line 12, Col 14: Char literal 'ab' is too long
+[Lexical Error] Line 13, Col 14: Bad escape sequence in char literal '\q'
+[Lexical Error] Line 15, Col 5: Unterminated block comment
+
+== THREE-ADDRESS CODE ==
+(skipped: compilation errors)

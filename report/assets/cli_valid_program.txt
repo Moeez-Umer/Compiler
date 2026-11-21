@@ -1,0 +1,383 @@
+== TOKENS ==
+TYPE        LEXEME      LINE  COL
+KEYWORD     const          1    1
+KEYWORD     int            1    7
+IDENTIFIER  LIMIT          1   11
+OPERATOR    =              1   17
+INT_LIT     10             1   19
+DELIMITER   ;              1   21
+KEYWORD     int            3    1
+IDENTIFIER  square         3    5
+DELIMITER   (              3   11
+KEYWORD     int            3   12
+IDENTIFIER  x              3   16
+DELIMITER   )              3   17
+DELIMITER   {              3   19
+KEYWORD     return         4    5
+IDENTIFIER  x              4   12
+OPERATOR    *              4   14
+IDENTIFIER  x              4   16
+DELIMITER   ;              4   17
+DELIMITER   }              5    1
+KEYWORD     int            7    1
+IDENTIFIER  sumSquares     7    5
+DELIMITER   (              7   15
+KEYWORD     int            7   16
+IDENTIFIER  n              7   20
+DELIMITER   )              7   21
+DELIMITER   {              7   23
+KEYWORD     int            8    5
+IDENTIFIER  total          8    9
+OPERATOR    =              8   15
+INT_LIT     0              8   17
+DELIMITER   ;              8   18
+KEYWORD     int            9    5
+IDENTIFIER  i              9    9
+OPERATOR    =              9   11
+INT_LIT     1              9   13
+DELIMITER   ;              9   14
+KEYWORD     while         10    5
+DELIMITER   (             10   11
+IDENTIFIER  i             10   12
+OPERATOR    <=            10   14
+IDENTIFIER  n             10   17
+DELIMITER   )             10   18
+DELIMITER   {             10   20
+IDENTIFIER  total         11    9
+OPERATOR    =             11   15
+IDENTIFIER  total         11   17
+OPERATOR    +             11   23
+IDENTIFIER  square        11   25
+DELIMITER   (             11   31
+IDENTIFIER  i             11   32
+DELIMITER   )             11   33
+DELIMITER   ;             11   34
+IDENTIFIER  i             12    9
+OPERATOR    =             12   11
+IDENTIFIER  i             12   13
+OPERATOR    +             12   15
+INT_LIT     1             12   17
+DELIMITER   ;             12   18
+DELIMITER   }             13    5
+KEYWORD     return        14    5
+IDENTIFIER  total         14   12
+DELIMITER   ;             14   17
+DELIMITER   }             15    1
+KEYWORD     float         17    1
+IDENTIFIER  average       17    7
+DELIMITER   (             17   14
+KEYWORD     int           17   15
+IDENTIFIER  a             17   19
+DELIMITER   ,             17   20
+KEYWORD     int           17   22
+IDENTIFIER  b             17   26
+DELIMITER   )             17   27
+DELIMITER   {             17   29
+KEYWORD     float         18    5
+IDENTIFIER  s             18   11
+OPERATOR    =             18   13
+IDENTIFIER  a             18   15
+OPERATOR    +             18   17
+IDENTIFIER  b             18   19
+DELIMITER   ;             18   20
+KEYWORD     return        19    5
+IDENTIFIER  s             19   12
+OPERATOR    /             19   14
+INT_LIT     2             19   16
+DELIMITER   ;             19   17
+DELIMITER   }             20    1
+KEYWORD     int           22    1
+IDENTIFIER  main          22    5
+DELIMITER   (             22    9
+DELIMITER   )             22   10
+DELIMITER   {             22   12
+KEYWORD     int           23    5
+IDENTIFIER  r             23    9
+OPERATOR    =             23   11
+IDENTIFIER  sumSquares    23   13
+DELIMITER   (             23   23
+IDENTIFIER  LIMIT         23   24
+DELIMITER   )             23   29
+DELIMITER   ;             23   30
+KEYWORD     bool          24    5
+IDENTIFIER  big           24   10
+OPERATOR    =             24   14
+IDENTIFIER  r             24   16
+OPERATOR    >             24   18
+INT_LIT     100           24   20
+OPERATOR    &&            24   24
+IDENTIFIER  LIMIT         24   27
+OPERATOR    !=            24   33
+INT_LIT     0             24   36
+DELIMITER   ;             24   37
+KEYWORD     if            25    5
+DELIMITER   (             25    8
+IDENTIFIER  big           25    9
+DELIMITER   )             25   12
+DELIMITER   {             25   14
+IDENTIFIER  r             26    9
+OPERATOR    =             26   11
+IDENTIFIER  r             26   13
+OPERATOR    -             26   15
+INT_LIT     1             26   17
+DELIMITER   ;             26   18
+DELIMITER   }             27    5
+KEYWORD     else          27    7
+KEYWORD     if            27   12
+DELIMITER   (             27   15
+IDENTIFIER  r             27   16
+OPERATOR    ==            27   18
+INT_LIT     0             27   21
+DELIMITER   )             27   22
+DELIMITER   {             27   24
+IDENTIFIER  r             28    9
+OPERATOR    =             28   11
+INT_LIT     1             28   13
+DELIMITER   ;             28   14
+DELIMITER   }             29    5
+KEYWORD     else          29    7
+DELIMITER   {             29   12
+IDENTIFIER  r             30    9
+OPERATOR    =             30   11
+INT_LIT     0             30   13
+DELIMITER   ;             30   14
+DELIMITER   }             31    5
+KEYWORD     for           32    5
+DELIMITER   (             32    9
+KEYWORD     int           32   10
+IDENTIFIER  k             32   14
+OPERATOR    =             32   16
+INT_LIT     0             32   18
+DELIMITER   ;             32   19
+IDENTIFIER  k             32   21
+OPERATOR    <             32   23
+INT_LIT     3             32   25
+DELIMITER   ;             32   26
+IDENTIFIER  k             32   28
+OPERATOR    =             32   30
+IDENTIFIER  k             32   32
+OPERATOR    +             32   34
+INT_LIT     1             32   36
+DELIMITER   )             32   37
+DELIMITER   {             32   39
+IDENTIFIER  r             33    9
+OPERATOR    =             33   11
+IDENTIFIER  r             33   13
+OPERATOR    +             33   15
+IDENTIFIER  k             33   17
+DELIMITER   ;             33   18
+DELIMITER   }             34    5
+KEYWORD     return        35    5
+IDENTIFIER  r             35   12
+DELIMITER   ;             35   13
+DELIMITER   }             36    1
+EOF                       37    1
+
+== PARSE TREE ==
+Program
+  VarDecl const int LIMIT
+    Literal 10 (int)
+  FunctionDecl int square
+    Param int x
+    Block
+      Return
+        BinaryOp *
+          Identifier x
+          Identifier x
+  FunctionDecl int sumSquares
+    Param int n
+    Block
+      VarDecl int total
+        Literal 0 (int)
+      VarDecl int i
+        Literal 1 (int)
+      While
+        BinaryOp <=
+          Identifier i
+          Identifier n
+        Block
+          Assign total
+            BinaryOp +
+              Identifier total
+              Call square
+                Identifier i
+          Assign i
+            BinaryOp +
+              Identifier i
+              Literal 1 (int)
+      Return
+        Identifier total
+  FunctionDecl float average
+    Param int a
+    Param int b
+    Block
+      VarDecl float s
+        BinaryOp +
+          Identifier a
+          Identifier b
+      Return
+        BinaryOp /
+          Identifier s
+          Literal 2 (int)
+  FunctionDecl int main
+    Block
+      VarDecl int r
+        Call sumSquares
+          Identifier LIMIT
+      VarDecl bool big
+        BinaryOp &&
+          BinaryOp >
+            Identifier r
+            Literal 100 (int)
+          BinaryOp !=
+            Identifier LIMIT
+            Literal 0 (int)
+      If
+        Identifier big
+        Block
+          Assign r
+            BinaryOp -
+              Identifier r
+              Literal 1 (int)
+        If
+          BinaryOp ==
+            Identifier r
+            Literal 0 (int)
+          Block
+            Assign r
+              Literal 1 (int)
+          Block
+            Assign r
+              Literal 0 (int)
+      For
+        VarDecl int k
+          Literal 0 (int)
+        BinaryOp <
+          Identifier k
+          Literal 3 (int)
+        Assign k
+          BinaryOp +
+            Identifier k
+            Literal 1 (int)
+        Block
+          Assign r
+            BinaryOp +
+              Identifier r
+              Identifier k
+      Return
+        Identifier r
+
+== SYMBOL TABLES ==
+Scope 0 (global)
+  NAME        TYPE   KIND   LEVEL  LINE  PARAMS
+  square      int    func       0     3  (int x)
+  sumSquares  int    func       0     7  (int n)
+  average     float  func       0    17  (int a, int b)
+  main        int    func       0    22  ()
+  LIMIT       int    const      0     1  -
+
+Scope 1 (function square)
+  NAME  TYPE  KIND   LEVEL  LINE  PARAMS
+  x     int   param      1     3  -
+
+Scope 2 (function sumSquares)
+  NAME   TYPE  KIND   LEVEL  LINE  PARAMS
+  n      int   param      1     7  -
+  total  int   var        1     8  -
+  i      int   var        1     9  -
+
+Scope 3 (block)
+  (empty)
+
+Scope 4 (function average)
+  NAME  TYPE   KIND   LEVEL  LINE  PARAMS
+  a     int    param      1    17  -
+  b     int    param      1    17  -
+  s     float  var        1    18  -
+
+Scope 5 (function main)
+  NAME  TYPE  KIND  LEVEL  LINE  PARAMS
+  r     int   var       1    23  -
+  big   bool  var       1    24  -
+
+Scope 6 (block)
+  (empty)
+
+Scope 7 (block)
+  (empty)
+
+Scope 8 (block)
+  (empty)
+
+Scope 9 (for)
+  NAME  TYPE  KIND  LEVEL  LINE  PARAMS
+  k     int   var       2    32  -
+
+Scope 10 (block)
+  (empty)
+
+== ERRORS ==
+(none)
+
+== THREE-ADDRESS CODE ==
+globals:
+  LIMIT = 10
+func square:
+  t1 = x * x
+  return t1
+endfunc
+func sumSquares:
+  total = 0
+  i = 1
+L1:
+  t2 = i <= n
+  ifFalse t2 goto L2
+  param i
+  t3 = call square, 1
+  t4 = total + t3
+  total = t4
+  t5 = i + 1
+  i = t5
+  goto L1
+L2:
+  return total
+endfunc
+func average:
+  t6 = a + b
+  s = t6
+  t7 = s / 2
+  return t7
+endfunc
+func main:
+  param LIMIT
+  t8 = call sumSquares, 1
+  r = t8
+  t9 = r > 100
+  t10 = LIMIT != 0
+  t11 = t9 && t10
+  big = t11
+  ifFalse big goto L3
+  t12 = r - 1
+  r = t12
+  goto L4
+L3:
+  t13 = r == 0
+  ifFalse t13 goto L5
+  r = 1
+  goto L6
+L5:
+  r = 0
+L6:
+L4:
+  k = 0
+L7:
+  t14 = k < 3
+  ifFalse t14 goto L8
+  t15 = r + k
+  r = t15
+  t16 = k + 1
+  k = t16
+  goto L7
+L8:
+  return r
+endfunc

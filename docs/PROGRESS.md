@@ -13,12 +13,17 @@ Deadline: Dec 5, 2026. Tick a phase only after the user has verified it.
   - [~] 5a: scopes, declarations, expression typing - committed (`e515e18`, tag `phase-5a`, per `git log`); box left `[~]` until you confirm verification
   - [~] 5b: callee, arity and argument types, return checks, missing return - committed (`f40c71c`, tag `phase-5b`, per `git log`); box left `[~]` until you confirm verification
 - [~] Phase 6: Three-address code generator (Nov 30 to Dec 1) - committed (`ff904c9`, tag `phase-6`, per `git log`); box left `[~]` until you confirm verification
-- [~] Phase 7: CLI integration and output polish (Dec 1 to 2) - built, 702 tests pass, awaiting your verification and commit (not committed)
-- [ ] Phase 8: Test suite, hardening, clean-clone check (Dec 2 to 3)
+- [~] Phase 7: CLI integration and output polish (Dec 1 to 2) - committed (`03891e9`, tag `phase-7`, per `git log`); box left `[~]` until you confirm verification
+- [~] Phase 8: Test suite, hardening, clean-clone check (Dec 2 to 3) - built (845 passed; 104 `.sl` test programs; approved `utf-8-sig` in `src/main.py` and 22 docstrings in `src/ast_nodes.py` applied; report assets generated), awaiting your verification and commit
 - [ ] Phase 9: Report and viva prep (Dec 3 to 4)
 
 ## Open issues
 
+- Phase 8 (D-044): `tests/test_programs.py` and `tests/pipeline_helper.py` run all 104 `.sl` files (`tests/valid`: 11, `tests/invalid`: 84, `tests/golden`: 9) through `tokenize`, `parse`, `analyze`, and `generate` directly. Every existing `.sl` file already had a valid `// EXPECT:` header (0 files lacked a header). Added 4 new edge-case `.sl` files (`valid/edge_comments_only.sl`, `valid/edge_tabs.sl`, `invalid/edge_empty_function_body.sl`, `invalid/edge_empty_function_body_literal.sl`). Because `edge_comments_only.sl` intentionally has 0 code tokens and empty TAC, `test_lexer.py::test_valid_files_have_no_lexical_errors` (`len(tokens) > 10`) and `test_tacgen.py::test_all_valid_programs_generate_nonempty_tac` (`len(tac) > 0`) exclude that one file while `test_programs.py` and `test_edge_cases.py` test it end-to-end.
+- Phase 8 (D-045): Approved 1-line `encoding="utf-8-sig"` change applied in `src/main.py:read_source`; a leading UTF-8 BOM is stripped without shifting line-1 columns while an interior BOM remains a lexical error.
+- Phase 8 (D-046): `tests/test_fuzz_pipeline.py` runs 1500 random raw-text inputs (`{'lexical': 1423, 'syntax': 58, 'tac': 19}`) and 4000 source-offset mutants (`{'lexical': 35, 'syntax': 2702, 'semantic': 816, 'tac': 447}`) with `random.Random(426)` and a 2.0 s per-case `SIGVTALRM` timer; 0 bugs found in `src/`. Two deliberately injected bugs (in `src/tacgen.py` and `src/semantic.py`) were caught by the fuzzer and immediately reverted.
+- Phase 8: `report/make_test_table.py` generated `report/assets/test_table.md` (104/104 PASS); `report/make_assets.py` generated 4 parse-tree PNGs, 5 CLI output `.txt` captures, and `spec_program.tac` in `report/assets/`; `report/code_review.py` audited `src/*.py` (0 functions over 40 lines; max is 27 lines in `src/symbol_table.py:_format_scope`; 0 missing docstrings after adding the 22 approved one-line docstrings to `label`/`children` in `src/ast_nodes.py`).
+- Phase 8: `README.md` CLI examples were re-run and verified byte-for-byte against actual CLI output.
 - Phase 7 (D-041): flags only choose what is printed; the lexer and parser always run, semantic only without Lexical/Syntax errors, TAC only without errors. Tests changed by this: `test_cli_tokens_only_still_runs_semantic_stage` (was "--tokens alone does not run the semantic stage"), `--tokens` added to the flag sets of two section-order tests (TOKENS is no longer always printed).
 - Phase 7 (D-042): all CLI tests moved to `tests/test_cli.py` (paths made absolute via `Path(__file__)`); the deep-chain `--tree` tests now expect `(skipped: nested too deeply to print)`, exit 1 and empty stderr (resolves the D-037 caveat).
 - Phase 7 (D-043): `--tree-png` writes `wrote PATH` to stderr (stdout identical); PNG errors exit 1 (too deep) or 2 (Graphviz/dot/file) and never hide sections.
@@ -55,13 +60,14 @@ Deadline: Dec 5, 2026. Tick a phase only after the user has verified it.
 - Phase 5b MUST items: all done in 5b (see D-033 to D-037); `test_5b_not_checked_yet` was deleted.
 - Parser (later, needs approval): store the NAME position on `VarDecl` and `Param` so declaration errors can point at the name instead of the type keyword (D-030).
 - Phase 7: done (parser in the default pipeline, flag handling replaced, no flag means `--all`; D-041).
-- Phase 8: `test_programs.py` should run `tests/valid` and `tests/invalid` end to end (EXPECT lines are in place for lexical, syntax, and semantic cases).
+- Phase 8: done (`test_programs.py`, `test_edge_cases.py`, `test_fuzz_pipeline.py`, `report/make_test_table.py`, `report/make_assets.py`, `report/code_review.py`, approved `utf-8-sig` in `src/main.py` and 22 one-line docstrings in `src/ast_nodes.py`; D-044 to D-046).
+- Phase 9: term project report and viva preparation using the assets in `report/assets/`.
 
 ## Next step
 
-Verify Phase 7 yourself: `source .venv/bin/activate && pytest -q -rs`, `python src/main.py samples/valid_program.sl`, `python src/main.py samples/errors_lexical_syntax.sl`, `python src/main.py samples/errors_semantic.sl`, `git status`.
-Then commit (`phase-7: full CLI, fixed section order, samples and README`) and `git tag phase-7`.
-Then Phase 8 (test suite, hardening, clean-clone check).
+Verify Phase 8 yourself: `source .venv/bin/activate && pytest -q -rsx`, `python report/make_test_table.py`, `python report/make_assets.py`, `python report/code_review.py`, `git status`.
+Then commit (`phase-8: end-to-end test suite, edge cases, fuzzing, report assets and code review`) and `git tag phase-8`, and run your clean-clone check.
+Then Phase 9 (report and viva prep).
 
 ## Hand-traced golden file walk-through (viva reference)
 

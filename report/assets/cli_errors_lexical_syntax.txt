@@ -1,0 +1,62 @@
+== TOKENS ==
+TYPE        LEXEME  LINE  COL
+KEYWORD     int        2    1
+IDENTIFIER  main       2    5
+DELIMITER   (          2    9
+DELIMITER   )          2   10
+DELIMITER   {          2   12
+KEYWORD     int        3    5
+IDENTIFIER  a          3    9
+OPERATOR    =          3   11
+INT_LIT     5          3   13
+INVALID     @          3   15
+INT_LIT     1          3   17
+DELIMITER   ;          3   18
+KEYWORD     int        4    5
+IDENTIFIER  b          4    9
+OPERATOR    =          4   11
+DELIMITER   ;          4   13
+KEYWORD     int        5    5
+IDENTIFIER  c          5    9
+OPERATOR    =          5   11
+INT_LIT     1          5   13
+KEYWORD     if         6    5
+DELIMITER   (          6    8
+IDENTIFIER  a          6    9
+OPERATOR    >          6   11
+INT_LIT     0          6   13
+DELIMITER   {          6   15
+IDENTIFIER  a          7    9
+OPERATOR    =          7   11
+INT_LIT     2          7   13
+DELIMITER   ;          7   14
+DELIMITER   }          8    5
+KEYWORD     return     9    5
+IDENTIFIER  a          9   12
+DELIMITER   ;          9   13
+DELIMITER   }         10    1
+EOF                   11    1
+
+== PARSE TREE ==
+Program
+  FunctionDecl int main
+    Block
+      VarDecl int c
+        Literal 1 (int)
+      Block
+        Assign a
+          Literal 2 (int)
+      Return
+        Identifier a
+
+== SYMBOL TABLES ==
+(skipped: lexical or syntax errors)
+
+== ERRORS ==
+[Lexical Error] Line 3, Col 15: Invalid character '@'
+[Syntax Error] Line 4, Col 13: Expected expression but found ';'
+[Syntax Error] Line 6, Col 5: Expected ';' but found 'if'
+[Syntax Error] Line 6, Col 15: Expected ')' but found '{'
+
+== THREE-ADDRESS CODE ==
+(skipped: compilation errors)

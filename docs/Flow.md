@@ -2,7 +2,7 @@
 
 Tags: `[PLANNED]` until built, then `[BUILT]`.
 
-## 1. Pipeline diagram [PLANNED; source → lexer → parser (with error recovery) → tree output in main is BUILT]
+## 1. Pipeline diagram [PLANNED; source → lexer → parser (with error recovery) → semantic part 1 (5a) is BUILT; tacgen is PLANNED]
 
 ```mermaid
 flowchart LR
@@ -18,13 +18,13 @@ flowchart LR
     ERR -.-> OUT
 ```
 
-## 2. Data passed between stages [PLANNED; lexer and parser rows and the tokens/tree parts of main are BUILT]
+## 2. Data passed between stages [PLANNED; lexer, parser, semantic (5a) rows and the tokens/tree/symbols parts of main are BUILT]
 
 | Stage | Input | Output | Notes |
 |---|---|---|---|
 | lexer | source text, `ErrorCollector` | `list[Token]` | Always ends with `EOF`. Bad input becomes `INVALID` tokens plus a Lexical error. |
 | parser [BUILT, with panic-mode recovery, D-021, D-022] | `list[Token]`, `ErrorCollector` | `Program` tree | Never raises or hangs. Skips `INVALID` tokens silently. Reports every syntax error it finds; the partial tree keeps all items and statements that parsed plus the recovered function. |
-| semantic | `Program`, `ErrorCollector` | `SymbolTable`, plus annotations on the tree | Annotations: `expr_type`, `tac_name`, `scope_id`. Pass 1 collects function signatures, pass 2 checks bodies. |
+| semantic [BUILT 5a: scopes, declarations, expression typing; 5b PLANNED: call arity and argument types, return checks, missing return, calling a variable] | `Program`, `ErrorCollector` | `SymbolTable`, plus annotations on the tree | Annotations: `expr_type`, `tac_name`, `scope_id`. Pass 1 collects function signatures, pass 2 checks bodies. |
 | tacgen | annotated `Program` | `list[str]` | Precondition: zero errors. Temporaries `t1..`, labels `L1..`, numbered per program. |
 | main | path, flags | exit code | Prints sections in order: tokens, tree, symbol tables, errors, TAC. |
 
@@ -76,7 +76,7 @@ flowchart TD
 
 Status per module: `tokens.py` and `errors.py` are [BUILT] (Phase 0); `lexer.py` is [BUILT] (Phase 1);
 `ast_nodes.py`, `parser.py`, `tree_export.py` are [BUILT] (Phases 2 and 3); `symbol_table.py` is [BUILT] (Phase 4);
-`main.py` is partly built (`--tokens` Phase 1, `--tree` and `--tree-png` Phase 2); all others are [PLANNED].
+`semantic.py` is [BUILT] for Phase 5a; `main.py` is partly built (`--tokens` Phase 1, `--tree` and `--tree-png` Phase 2, `--symbols` Phase 5a); all others are [PLANNED].
 
 Symbol table internals [BUILT]: `SymbolTable` maintains two lists of `_Scope` records: `_active` (the currently open
 lexical scopes from outermost `global` to innermost) and `_all_scopes` (append-only creation-order history of every scope
@@ -110,9 +110,23 @@ characters, anything else INVALID). Every INVALID token also reports a Lexical e
 | `parser.py` | [BUILT: panic-mode recovery, partial tree] | `parse(tokens, errors) -> Program` | `tokens`, `errors`, `ast_nodes` |
 | `tree_export.py` | [BUILT] | `tree_to_text`, `tree_to_dot`, `export_png` | `ast_nodes` only |
 | `symbol_table.py` | [BUILT] | `Symbol`, `SymbolTable` (`enter_scope`, `exit_scope`, `declare`, `lookup`, `lookup_current`, `current_level`, `dump`) | none |
-| `semantic.py` | [PLANNED] | `analyze(tree, errors) -> SymbolTable` | `parser` outputs, `ast_nodes`, `symbol_table`, `errors` |
+| `semantic.py` | [BUILT: Phase 5a; 5b is PLANNED] | `analyze(tree, errors) -> SymbolTable` | `parser` outputs, `ast_nodes`, `symbol_table`, `errors` |
 | `tacgen.py` | [PLANNED] | `generate(tree) -> list[str]` | `semantic` annotations, `ast_nodes` |
-| `main.py` | [BUILT: `--tokens`, `--tree`, `--tree-png`] | `run(path, flags, png_path=None) -> int` (D-019) | `lexer`, `parser`, `tree_export`, `errors`, `tokens` now; all of the above later |
+| `main.py` | [BUILT: `--tokens`, `--tree`, `--tree-png`, `--symbols`] | `run(path, flags, png_path=None) -> int` (D-019) | `lexer`, `parser`, `tree_export`, `errors`, `tokens` now; all of the above later |
 
 Dependency direction (no cycles):
 `tokens, errors` ← `lexer` ← `parser` (also `ast_nodes`) ← `semantic` (uses `symbol_table`) ← `tacgen` ← `main`.
+
+## 5. Semantic analyzer internals (Phase 5a) [BUILT]
+
+`analyze` builds an `Analyzer` and runs `analyze_program`: it opens `Scope 0 (global)`, pass 1 (`collect_functions`) declares every
+function signature (a duplicate name is an error), then pass 2 walks the items in source order, so a global variable is visible
+only after its declaration (D-028). `check_function` opens one scope (`function NAME`) for the parameters and the body's top level
+(`FunctionDecl.scope_id == body.scope_id`); `check_block` opens a `block` scope; `check_for` opens a `for` scope that holds the init variable.
+`type_expr` types an expression and stores `expr_type`; operators go through `binary_result` (the SPEC table) and one `error` type
+stops cascades (D-031). `declare_variable` assigns a unique `tac_name` (D-029). In 5a a call types its arguments and gets the function's
+return type; arity, argument types, return checks, missing return and calling a variable are [PLANNED] for 5b.
+
+`main.py` stage order [BUILT]: tokens, parse tree, symbol tables (`--symbols`), errors. The semantic stage runs when the parser ran and
+there are no Lexical or Syntax errors (D-031); semantic errors do not stop `--symbols` from printing the tables.
+

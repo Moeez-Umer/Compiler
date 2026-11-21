@@ -1,6 +1,6 @@
 """SmartLang compiler command line (SPEC section 12, interfaces.md: main.py).
 
-Phase 2: --tokens and --tree / --tree-png exist. Later phases add one stage each (D-007).
+Phase 5a: --tokens, --tree / --tree-png and --symbols exist. Later phases add one stage each (D-007).
 This is the only module that prints.
 """
 import os
@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.errors import ErrorCollector  # noqa: E402
 from src.lexer import tokenize  # noqa: E402
 from src.parser import parse  # noqa: E402
+from src.semantic import analyze  # noqa: E402
 from src.tokens import Token  # noqa: E402
 from src.tree_export import export_png, tree_to_text  # noqa: E402
 
@@ -20,8 +21,8 @@ EXIT_OK = 0
 EXIT_COMPILE_ERROR = 1
 EXIT_USAGE = 2
 
-KNOWN_FLAGS = {"--tokens", "--tree", "--tree-png"}
-USAGE = "usage: python src/main.py prog.sl [--tokens] [--tree] [--tree-png PATH]"
+KNOWN_FLAGS = {"--tokens", "--tree", "--tree-png", "--symbols"}
+USAGE = "usage: python src/main.py prog.sl [--tokens] [--tree] [--tree-png PATH] [--symbols]"
 
 
 def format_token_table(tokens: list[Token]) -> str:
@@ -60,12 +61,13 @@ def run(path: str, flags: set[str], png_path: str | None = None) -> int:
     print("== TOKENS ==")
     print(format_token_table(tokens))
     print()
-    # Parse only when a tree output was asked for; syntax errors are reported then (D-019).
+    # Parse only when a parser-based output was asked for; syntax errors are reported then (D-019).
     tree = parse(tokens, errors) if wants_tree(flags) else None
     if tree is not None and "--tree" in flags:
         print("== PARSE TREE ==")
         print(tree_to_text(tree))
         print()
+    run_semantic_stage(tree, flags, errors)
     print("== ERRORS ==")
     for error in errors.all():
         print(error.format())
@@ -78,8 +80,29 @@ def run(path: str, flags: set[str], png_path: str | None = None) -> int:
 
 
 def wants_tree(flags: set[str]) -> bool:
-    """True if any requested output needs the parse tree."""
-    return "--tree" in flags or "--tree-png" in flags
+    """True if any requested output needs the parser (and so the semantic stage)."""
+    return bool(flags & {"--tree", "--tree-png", "--symbols"})
+
+
+def run_semantic_stage(tree, flags: set[str], errors: ErrorCollector) -> None:
+    """Analyze the tree when the parser ran and found no Lexical or Syntax errors (SPEC section 9).
+
+    Semantic errors go into `errors` (printed under == ERRORS ==). With --symbols the tables are
+    printed even when semantic errors exist; after lexical or syntax errors a skip note is printed.
+    """
+    if tree is None:
+        return
+    if errors.has_kind("Lexical") or errors.has_kind("Syntax"):
+        if "--symbols" in flags:
+            print("== SYMBOL TABLES ==")
+            print("(skipped: lexical or syntax errors)")
+            print()
+        return
+    table = analyze(tree, errors)
+    if "--symbols" in flags:
+        print("== SYMBOL TABLES ==")
+        print(table.dump())
+        print()
 
 
 def write_png(tree, png_path: str | None) -> bool:

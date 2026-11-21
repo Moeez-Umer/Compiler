@@ -463,3 +463,34 @@ Changes to SPEC.md or frozen interfaces must be logged here.
   - (+) Setting `symbol.scope_level` inside `declare()` eliminates any mismatch between a symbol's stored level and its scope.
   - (-) The caller (Phase 5 `semantic.py` or tests) must call `enter_scope("global")` before declaring top-level symbols.
   - (-) `declare()` mutates `symbol.scope_level` in place (`Symbol` is a non-frozen dataclass in `interfaces.md`).
+
+## D-028 Phase 5a scope visibility, declaration order and silent non-function calls
+
+- **Context**: SPEC section 8 fixes the scope kinds but not when a name becomes visible, nor what a call of a non-function does before Phase 5b.
+- **Options considered**: (1) declare a name before or after typing its initializer; (2) make all globals visible everywhere vs. only after their declaration; (3) report `x(1)` where `x` is a variable now or leave it to 5b.
+- **Decision** (approved): functions are visible everywhere (pass 1 collects every signature, so forward calls and recursion work); a global variable is visible only after its declaration, so a function placed before it cannot use it; the initializer is typed BEFORE the name is declared, so `int x = x;` reports `Undeclared identifier 'x'`; a call whose name resolves to a non-function is **silent in 5a** and gets type `error` (Phase 5b adds the message). A global variable whose name equals an earlier-collected function is a redeclaration error. The `for` statement has its own scope (label `for`) and its body is a block scope inside it; the function body Block shares the function's scope id.
+- **Trade-offs**: (+) simple, matches C-like intuition. (-) Calling a variable is accepted silently until 5b (pinned by `test_5b_not_checked_yet`). (-) Order of global declarations matters for variables but not for functions.
+
+## D-029 Unique `tac_name`, never colliding with TAC temporaries or labels
+
+- **Context**: SPEC section 11 numbers temporaries `t1..` and labels `L1..`; a user variable named `t1` would clash in the flat TAC namespace. Shadowed variables also need distinct names.
+- **Decision**: one program-wide `used_names` set. A declaration takes its own name if unused, else `name_1`, `name_2`, ... (skipping names already taken, so a user variable `x_1` is never reused). Any name matching `^[tL][0-9]+$` counts as already taken, so a user `t1` becomes `t1_1` and `L2` becomes `L2_1`. Parameters, variables, constants and globals all get a `tac_name`; `Identifier` and `Assign` copy the tac_name of the symbol they resolve to. Functions keep their own name.
+- **Trade-offs**: (+) TAC generation can use `tac_name` directly. (-) Function names are not renamed, so a function called `L1` or `t1` could still look like a label or temporary in TAC; to be decided in Phase 6 (labels end in `:` and calls use `call f`, so no real clash is expected). Test: `test_tac_name_never_collides_with_temporaries_and_labels`.
+
+## D-030 Error positions in Phase 5a (and a limitation for declarations)
+
+- **Context**: the plan asked for assignment and initializer mismatches to be reported at the target name. `VarDecl` and `Param` only store the position of the declaration's FIRST token (the type, or `const`), and the parser is out of scope for Phase 5a.
+- **Decision**: `Assign` errors use the target name (the parser stores the name token). Declaration errors (initializer mismatch, const without initializer, redeclaration) use the declaration's first token, so `    int x = 2.5;` reports Col 5, as in the SPEC example, but `const int C = 1.5;` reports Col 1 (the `const` keyword) and not the name. Binary and unary operators use the operator token; conditions use the condition expression node (for `x + 1` that is the `+`, for an identifier the identifier); identifiers and calls use their own token; a duplicate function uses the function's first token.
+- **Trade-offs**: (-) A declaration error points at the type keyword, not the name; fixing it needs `name_line`/`name_col` on `VarDecl`/`Param` in the parser (a later, approved change). Listed in PROGRESS.md under Later.
+
+## D-031 Internal `error` type and the CLI semantic-stage policy
+
+- **Decision**: any operand of type `error` gives a result of type `error` and no message; a failed declaration still declares the name with its DECLARED type, so later uses are not errors; a failed const assignment or function assignment reports once. The semantic stage runs in `main.py` whenever the parser ran (`--tree`, `--tree-png`, `--symbols`) and there are no Lexical or Syntax errors; semantic errors then appear under `== ERRORS ==` and the exit code is 1. `--symbols` prints the tables even with semantic errors; with lexical or syntax errors it prints `== SYMBOL TABLES ==` and `(skipped: lexical or syntax errors)`. With only `--tokens` the parser does not run, so no semantic check happens (Phase 7 changes this, D-019).
+- **Trade-offs**: (+) one mistake gives one message. (-) after a rejected operator the expression is `error`, so a second real mistake in the same expression is not reported.
+
+## D-032 Left-spine loop and recursion safety net in the analyzer
+
+- **Context**: the parser nests `a + b + c + ...` to the left. A recursive `type_binary` crashed with `RecursionError` on an 800-term sum (found while testing; it was my own new code, not an earlier-phase bug). 
+- **Decision**: `type_binary` walks the left spine with a loop (2000-term chains work). Right-nested depth (900 unary minus signs, accepted by the parser) still recurses, so `analyze` catches `RecursionError` and reports one `Program is nested too deeply to analyze` Semantic error instead of crashing (SPEC section 9).
+- **Trade-offs**: (-) after that error the symbol table can be incomplete. Tests: `test_long_operator_chain_does_not_crash`, `test_extreme_nesting_is_an_error_not_a_crash`.
+
